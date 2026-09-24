@@ -68,8 +68,12 @@ export function normalTex(size = 256, { octaves = 4, seed = 11, strength = 1.5 }
 
 /** magnetic tape surface: the coating is drawn on in one direction, so the
     grain runs lengthwise. Returns colour / roughness / normal maps that share
-    one streak field, so the highlight and the bumpiness line up. */
-export function tapeMaps(size = 512) {
+    one streak field, so the highlight and the bumpiness line up.
+    `cut` is where the tape's cross-section is split: the two cut edges take up
+    the tape's thickness over its perimeter (against a 3.81 mm width), which is
+    the same fraction the ribbon's own v bands are cut to — RIB_EDGE in
+    cassette.js, one number, so the texture and the geometry cannot drift. */
+export function tapeMaps(size = 512, cut = 0.02) {
   const r = rng(1234);
   const h = new Float32Array(size * size);
 
@@ -110,7 +114,7 @@ export function tapeMaps(size = 512) {
     { c: [104, 88, 72], coarse: 30, rough: [0.20, 0.34], nrm: 0.6 },   // cut edge
     { c: [46, 34, 27], coarse: 11, rough: [0.26, 0.54], nrm: 1.0 },   // oxide face
   ];
-  const bandOf = (v) => (v < 0.02 || (v >= 0.50 && v < 0.52)) ? 0 : (v < 0.50 ? 1 : 3);
+  const bandOf = (v) => (v < cut || (v >= 0.5 && v < 0.5 + cut)) ? 0 : (v < 0.5 ? 1 : 3);
 
   const col = new Uint8Array(size * size * 4);
   const rgh = new Uint8Array(size * size * 4);
@@ -1215,35 +1219,60 @@ export function labelTexture(face = 'A', { title = '', artist = '', album = '', 
 /* ------------------------------------------------------------------ *
  *  wound tape pack : concentric layer edges seen from above
  * ------------------------------------------------------------------ */
-export function tapeEdgeTexture(size = 1024) {
+export const EDGE_RINGS = 200;
+/* The ring pitch, as a radius in uv — the disc is drawn at this and then scaled
+   about its centre by however many layers the pack is holding (`alignPack` in
+   cassette.js), so this one number is the only thing the two sides have to agree
+   on. */
+export const EDGE_PITCH = 0.5 / EDGE_RINGS;
+
+export function tapeEdgeTexture(size = 1024, bore = 0) {
   const c = canvas(size, size), g = c.getContext('2d');
   const R = size / 2;
-  g.fillStyle = '#3b2a1d'; g.fillRect(0, 0, size, size);
+  // what shows between two layer edges: the shadow in the groove, in the same
+  // warm grey family the cut edge is drawn in (see BAND in tapeMaps)
+  g.fillStyle = '#3a3229'; g.fillRect(0, 0, size, size);
   const r = rng(77);
-  const rings = 200;
+  /* `bore` is the part of this disc the hub stands on, as a share of its radius
+     — and it is a *constant*, because the caller scales the whole disc so that
+     one layer is one ring: everything inside the hub's radius is always the same
+     length of tape, hence always this same fraction of the texture. Nothing is
+     drawn in there. The tape winds around the hub, not through it, so the only
+     thing behind the spindle hole is the dark inside of the shell — and before
+     this, the layers ran all the way to the centre, which is exactly what you
+     saw looking into it. */
+  const R0 = R * bore;
+  g.fillStyle = '#0c0e10';                       // the shell's own interior
+  g.beginPath(); g.arc(R, R, R0, 0, Math.PI * 2); g.fill();
+  /* One ring is one layer of tape, so they run from the hub out — the pitch in
+     here is only ever a relative one (the caller scales it), but a ring's
+     *colour* has to be the tape's cut edge, because that is the surface these are
+     the stacked edges of: rgb(104,88,72) at l = 72. */
+  const rings = Math.round((1 - bore) * EDGE_RINGS);
   for (let i = rings; i > 0; i--) {
-    const f = i / rings;
-    const rad = R * (0.33 + 0.67 * f);
+    const f = bore + (i / rings) * (1 - bore);
     const v = 0.5 + 0.5 * Math.sin(i * 2.1);
-    const l = 34 + v * 34 + f * 16;
+    const l = 56 + v * 24 + f * 14;
     g.beginPath();
-    g.arc(R, R, rad, 0, Math.PI * 2);
+    g.arc(R, R, R * f, 0, Math.PI * 2);
     g.lineWidth = 1.4;
-    g.strokeStyle = `rgb(${(l * 1.42) | 0},${(l * 0.98) | 0},${(l * 0.66) | 0})`;
+    g.strokeStyle = `rgb(${(l * 1.444) | 0},${(l * 1.222) | 0},${l | 0})`;
     g.stroke();
   }
   g.globalAlpha = 0.45;
   for (let i = 0; i < 2600; i++) {
-    const a = r() * Math.PI * 2, rr = R * (0.33 + 0.67 * Math.sqrt(r()));
-    g.fillStyle = r() > 0.5 ? '#6b5236' : '#1b1310';
+    const a = r() * Math.PI * 2, rr = R * (bore + (1 - bore) * Math.sqrt(r()));
+    g.fillStyle = r() > 0.5 ? '#6a5849' : '#24201b';
     g.fillRect(R + Math.cos(a) * rr, R + Math.sin(a) * rr, 2, 1);
   }
   g.globalAlpha = 1;
-  // faint spiral + the tape end: breaks the rotational symmetry so you can
-  // actually see the pack spinning
+  // Faint spiral + the tape end: breaks the rotational symmetry so the pack's
+  // own turning is visible. Twelve turns rather than five, because the caller
+  // only ever shows the inner third of this disc — the outer turns would be
+  // scaled out of the window and there would be nothing left to see turn.
   g.beginPath();
   for (let t = 0; t <= 1.0001; t += 0.0015) {
-    const a = t * Math.PI * 9.2, rad = R * (0.345 + 0.635 * t);
+    const a = t * Math.PI * 24, rad = R * (bore + (1 - bore) * t);
     const x = R + Math.cos(a) * rad, y = R + Math.sin(a) * rad;
     t === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
   }
@@ -1257,15 +1286,8 @@ export function tapeEdgeTexture(size = 1024) {
   step.addColorStop(0, 'rgba(255,236,208,0.20)');
   step.addColorStop(1, 'rgba(0,0,0,0.28)');
   g.fillStyle = step;
-  g.fillRect(-1.6, -R * 0.98, 3.2, R * 0.98);
+  g.fillRect(-1.6, -R * 0.98, 3.2, R * (0.98 - bore));
   g.restore();
-
-  const sh = g.createRadialGradient(R, R, R * 0.25, R, R, R);
-  sh.addColorStop(0, 'rgba(0,0,0,0.34)');
-  sh.addColorStop(0.55, 'rgba(0,0,0,0.02)');
-  sh.addColorStop(0.9, 'rgba(255,236,208,0.12)');
-  sh.addColorStop(1, 'rgba(0,0,0,0.5)');
-  g.fillStyle = sh; g.fillRect(0, 0, size, size);
   return tex(c, { srgb: true });
 }
 
@@ -1380,6 +1402,44 @@ export function sweepAlpha(w = 64, h = 4) {
     g.fillRect(Math.round(w * (0.90 + i * 0.032)), 0, 1, h);
   }
   g.globalCompositeOperation = 'source-over';
+  const t = tex(c, { srgb: false, aniso: 1 });
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
+/** The clear leader at each end of the ribbon, as an alpha.
+ *
+ *  A compact cassette splices uncoated leader to both ends of the magnetic tape,
+ *  and it is the leader that makes the end of a side legible: the coating simply
+ *  stops, the dark inside of the shell shows through the tape, and the two cut
+ *  edges of the PET keep the ribbon's silhouette. So this is not a colour, it is
+ *  a transparency — one band per end of the *tape*, laid on a uv channel of its
+ *  own (see `align` in cassette.js), with the cut edges left far more opaque than
+ *  the broad faces so what is left reads as clear tape rather than as a gap.
+ *
+ *  V is the ribbon's cross-section, cut the same way `tapeMaps` cuts it: the two
+ *  cut edges and the two faces between them (the caller passes the fraction).
+ *  U is the tape's own length, from
+ *  the leader at one end to the leader at the other, so the caller only has to
+ *  scale it (repeat) and slide it (offset) — and the clamp does the rest, since
+ *  material that would sit past either end of the tape is material that does not
+ *  exist, and the black band at that end is what belongs in its place. */
+export function leaderAlpha(w = 2048, h = 128, { lead = 0.01, cut = 0.02, edge = 0.62, face = 0.18 } = {}) {
+  const c = canvas(w, h), g = c.getContext('2d');
+  const grey = (x) => { const n = Math.round(x * 255); return `rgb(${n},${n},${n})`; };
+  // rows, in RIB_V's order and at RIB_V's fractions: cut edge | back coat |
+  // cut edge | oxide face
+  const e = Math.max(1, Math.round(h * cut)), f = Math.round(h * (0.5 - cut));
+  for (const [y0, y1, k] of [[0, e, edge], [e, e + f, face], [e + f, 2 * e + f, edge], [2 * e + f, h, face]]) {
+    g.fillStyle = grey(k);
+    g.fillRect(0, y0, w, y1 - y0);
+  }
+  // and the coated tape is opaque between the two leaders. One texel of a 2048
+  // across the whole tape is a few millimetres, so the joint is left hard and the
+  // filtering rounds it over — which is what a splice looks like anyway.
+  const x = Math.max(1, Math.round(lead * w));
+  g.fillStyle = '#fff';
+  g.fillRect(x, 0, w - 2 * x, h);
   const t = tex(c, { srgb: false, aniso: 1 });
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
   return t;

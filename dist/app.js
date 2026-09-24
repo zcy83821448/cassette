@@ -28871,7 +28871,7 @@ void main() {
     }
     return dataTex(d, size);
   }
-  function tapeMaps(size = 512) {
+  function tapeMaps(size = 512, cut2 = 0.02) {
     const r = rng(1234);
     const h = new Float32Array(size * size);
     const row = new Float32Array(size);
@@ -28908,7 +28908,7 @@ void main() {
       { c: [46, 34, 27], coarse: 11, rough: [0.26, 0.54], nrm: 1 }
       // oxide face
     ];
-    const bandOf = (v) => v < 0.02 || v >= 0.5 && v < 0.52 ? 0 : v < 0.5 ? 1 : 3;
+    const bandOf = (v) => v < cut2 || v >= 0.5 && v < 0.5 + cut2 ? 0 : v < 0.5 ? 1 : 3;
     const col = new Uint8Array(size * size * 4);
     const rgh = new Uint8Array(size * size * 4);
     const nrm = new Uint8Array(size * size * 4);
@@ -29868,34 +29868,40 @@ void main() {
     g.fillRect(0, 0, W, H);
     return tex(c, { srgb: true });
   }
-  function tapeEdgeTexture(size = 1024) {
+  var EDGE_RINGS = 200;
+  var EDGE_PITCH = 0.5 / EDGE_RINGS;
+  function tapeEdgeTexture(size = 1024, bore = 0) {
     const c = canvas(size, size), g = c.getContext("2d");
     const R = size / 2;
-    g.fillStyle = "#3b2a1d";
+    g.fillStyle = "#3a3229";
     g.fillRect(0, 0, size, size);
     const r = rng(77);
-    const rings = 200;
+    const R0 = R * bore;
+    g.fillStyle = "#0c0e10";
+    g.beginPath();
+    g.arc(R, R, R0, 0, Math.PI * 2);
+    g.fill();
+    const rings = Math.round((1 - bore) * EDGE_RINGS);
     for (let i = rings; i > 0; i--) {
-      const f = i / rings;
-      const rad = R * (0.33 + 0.67 * f);
+      const f = bore + i / rings * (1 - bore);
       const v = 0.5 + 0.5 * Math.sin(i * 2.1);
-      const l = 34 + v * 34 + f * 16;
+      const l = 56 + v * 24 + f * 14;
       g.beginPath();
-      g.arc(R, R, rad, 0, Math.PI * 2);
+      g.arc(R, R, R * f, 0, Math.PI * 2);
       g.lineWidth = 1.4;
-      g.strokeStyle = `rgb(${l * 1.42 | 0},${l * 0.98 | 0},${l * 0.66 | 0})`;
+      g.strokeStyle = `rgb(${l * 1.444 | 0},${l * 1.222 | 0},${l | 0})`;
       g.stroke();
     }
     g.globalAlpha = 0.45;
     for (let i = 0; i < 2600; i++) {
-      const a = r() * Math.PI * 2, rr = R * (0.33 + 0.67 * Math.sqrt(r()));
-      g.fillStyle = r() > 0.5 ? "#6b5236" : "#1b1310";
+      const a = r() * Math.PI * 2, rr = R * (bore + (1 - bore) * Math.sqrt(r()));
+      g.fillStyle = r() > 0.5 ? "#6a5849" : "#24201b";
       g.fillRect(R + Math.cos(a) * rr, R + Math.sin(a) * rr, 2, 1);
     }
     g.globalAlpha = 1;
     g.beginPath();
     for (let t2 = 0; t2 <= 1.0001; t2 += 15e-4) {
-      const a = t2 * Math.PI * 9.2, rad = R * (0.345 + 0.635 * t2);
+      const a = t2 * Math.PI * 24, rad = R * (bore + (1 - bore) * t2);
       const x = R + Math.cos(a) * rad, y = R + Math.sin(a) * rad;
       t2 === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
     }
@@ -29909,15 +29915,8 @@ void main() {
     step2.addColorStop(0, "rgba(255,236,208,0.20)");
     step2.addColorStop(1, "rgba(0,0,0,0.28)");
     g.fillStyle = step2;
-    g.fillRect(-1.6, -R * 0.98, 3.2, R * 0.98);
+    g.fillRect(-1.6, -R * 0.98, 3.2, R * (0.98 - bore));
     g.restore();
-    const sh = g.createRadialGradient(R, R, R * 0.25, R, R, R);
-    sh.addColorStop(0, "rgba(0,0,0,0.34)");
-    sh.addColorStop(0.55, "rgba(0,0,0,0.02)");
-    sh.addColorStop(0.9, "rgba(255,236,208,0.12)");
-    sh.addColorStop(1, "rgba(0,0,0,0.5)");
-    g.fillStyle = sh;
-    g.fillRect(0, 0, size, size);
     return tex(c, { srgb: true });
   }
   function brushedTexture(size = 512, tint = [150, 152, 158], rot = 0) {
@@ -30008,6 +30007,24 @@ void main() {
       g.fillRect(Math.round(w * (0.9 + i * 0.032)), 0, 1, h);
     }
     g.globalCompositeOperation = "source-over";
+    const t2 = tex(c, { srgb: false, aniso: 1 });
+    t2.wrapS = t2.wrapT = ClampToEdgeWrapping;
+    return t2;
+  }
+  function leaderAlpha(w = 2048, h = 128, { lead = 0.01, cut: cut2 = 0.02, edge = 0.62, face = 0.18 } = {}) {
+    const c = canvas(w, h), g = c.getContext("2d");
+    const grey = (x2) => {
+      const n = Math.round(x2 * 255);
+      return `rgb(${n},${n},${n})`;
+    };
+    const e = Math.max(1, Math.round(h * cut2)), f = Math.round(h * (0.5 - cut2));
+    for (const [y0, y1, k] of [[0, e, edge], [e, e + f, face], [e + f, 2 * e + f, edge], [2 * e + f, h, face]]) {
+      g.fillStyle = grey(k);
+      g.fillRect(0, y0, w, y1 - y0);
+    }
+    const x = Math.max(1, Math.round(lead * w));
+    g.fillStyle = "#fff";
+    g.fillRect(x, 0, w - 2 * x, h);
     const t2 = tex(c, { srgb: false, aniso: 1 });
     t2.wrapS = t2.wrapT = ClampToEdgeWrapping;
     return t2;
@@ -30731,6 +30748,10 @@ void main() {
     // visual layer thickness (transfer rate)
     v: 4.76,
     // cm/s
+    tile: 0.2,
+    // cm of tape per repeat of the coating texture
+    lead: 0.01,
+    // the clear leader, as a share of the tape's length
     podX: 4.3,
     podZ: 2.4
   };
@@ -30868,13 +30889,47 @@ void main() {
     const rgh = roughTex(512, { lo: 0.4, hi: 0.72, seed: 5 });
     const paperN = normalTex(512, { octaves: 6, strength: 2.6, seed: 31 });
     const brush = brushedTexture(512, [152, 154, 160]);
-    const tapeM = tapeMaps(512);
+    const tapeM = tapeMaps(512, RIB_EDGE);
     for (const m of [tapeM.map, tapeM.roughnessMap, tapeM.normalMap]) {
       m.wrapS = m.wrapT = RepeatWrapping;
-      m.repeat.set(60, 1);
+      m.repeat.set(1, 1);
       m.anisotropy = 16;
       m.needsUpdate = true;
     }
+    const leadA = leaderAlpha(2048, 128, { lead: D.lead / (1 + 2 * D.lead), cut: RIB_EDGE });
+    leadA.channel = 1;
+    const tape = new MeshPhysicalMaterial({
+      color: 16777215,
+      map: tapeM.map,
+      alphaMap: leadA,
+      transparent: true,
+      forceSinglePass: true,
+      roughness: 1,
+      roughnessMap: tapeM.roughnessMap,
+      metalness: 0.08,
+      normalMap: tapeM.normalMap,
+      normalScale: new Vector2(0.55, 0.55),
+      // the coating is drawn on lengthwise, so the highlight streaks along the
+      // tape rather than sitting as a round blob
+      anisotropy: 0.55,
+      anisotropyRotation: 0,
+      sheen: 0.45,
+      sheenColor: new Color(10249782),
+      sheenRoughness: 0.45,
+      iridescence: 0.12,
+      iridescenceIOR: 1.28,
+      iridescenceThicknessRange: [120, 420],
+      clearcoat: 0.18,
+      clearcoatRoughness: 0.42,
+      envMapIntensity: 0.9,
+      side: DoubleSide
+    });
+    const packSide = tape.clone();
+    packSide.alphaMap = null;
+    packSide.transparent = false;
+    packSide.forceSinglePass = false;
+    packSide.side = FrontSide;
+    for (const k of ["map", "roughnessMap", "normalMap"]) packSide[k] = tape[k].clone();
     const labelMap = (face) => makeLabelMap(face, labelOpts);
     return {
       micro,
@@ -30978,45 +31033,27 @@ void main() {
         sheenColor: new Color(7035464),
         sheenRoughness: 0.9
       }),
-      tape: new MeshPhysicalMaterial({
-        color: 16777215,
-        map: tapeM.map,
-        roughness: 1,
-        roughnessMap: tapeM.roughnessMap,
+      tape,
+      packSide,
+      /* The pack's top face: the stacked cut edges of every layer on it, so it is
+         lit like the cut edges are — the tape's metalness, the tape's sheen, the
+         gloss the cut band has in `tapeMaps` (0.20–0.34 → 0.28 here). Only the
+         *rings* in it are the pack's own, and their colour is that same band's:
+         see tapeEdgeTexture. Two of the tape's properties are deliberately not
+         carried over: anisotropy, because a disc's grain runs round it and an
+         anisotropy rotation is one direction for a whole mesh; and iridescence,
+         which models the coating's thin film — and this disc is the PET between
+         the layers, not the coating. */
+      packFace: new MeshPhysicalMaterial({
+        map: tapeEdgeTexture(1024, BORE_V),
         metalness: 0.08,
-        normalMap: tapeM.normalMap,
-        normalScale: new Vector2(0.55, 0.55),
-        // the coating is drawn on lengthwise, so the highlight streaks along the
-        // tape rather than sitting as a round blob
-        anisotropy: 0.55,
-        anisotropyRotation: 0,
+        roughness: 0.28,
         sheen: 0.45,
         sheenColor: new Color(10249782),
         sheenRoughness: 0.45,
-        iridescence: 0.12,
-        iridescenceIOR: 1.28,
-        iridescenceThicknessRange: [120, 420],
         clearcoat: 0.18,
         clearcoatRoughness: 0.42,
-        envMapIntensity: 0.9,
-        side: DoubleSide
-      }),
-      packFace: new MeshPhysicalMaterial({
-        map: tapeEdgeTexture(1024),
-        metalness: 0.05,
-        roughness: 0.4,
-        sheen: 0.55,
-        sheenColor: new Color(10118452),
-        envMapIntensity: 1.15
-      }),
-      packSide: new MeshPhysicalMaterial({
-        color: 4863268,
-        metalness: 0.08,
-        roughness: 0.26,
-        sheen: 0.75,
-        sheenColor: new Color(11038780),
-        sheenRoughness: 0.38,
-        envMapIntensity: 1.2
+        envMapIntensity: 0.9
       }),
       labelA: new MeshPhysicalMaterial({
         map: labelMap("A"),
@@ -31046,24 +31083,28 @@ void main() {
       })
     };
   }
+  var RIB_EDGE = D.tTape / (2 * (D.tapeW + D.tTape));
+  var BORE_V = D.hub.r * 2 * EDGE_PITCH / D.tTape;
   var RIB_CORNERS = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
   var RIB_MAP = [0, 1, 1, 2, 2, 3, 3, 0];
   var RIB_SN = RIB_MAP.map((i) => RIB_CORNERS[i][0]);
   var RIB_SY = RIB_MAP.map((i) => RIB_CORNERS[i][1]);
-  var RIB_V = [0, 0.02, 0.02, 0.5, 0.5, 0.52, 0.52, 1];
+  var RIB_V = [0, RIB_EDGE, RIB_EDGE, 0.5, 0.5, 0.5 + RIB_EDGE, 0.5 + RIB_EDGE, 1];
   var Ribbon = class {
-    constructor(n, hw, ht) {
+    constructor(n, hw, ht, headI) {
       this.n = n;
       this.hw = hw;
       this.ht = ht;
+      this.headI = headI;
       const g = new BufferGeometry();
       const pos = new Float32Array(n * 8 * 3);
       const nrm = new Float32Array(n * 8 * 3);
       const uv = new Float32Array(n * 8 * 2);
+      const uv1 = new Float32Array(n * 8 * 2);
       for (let i = 0; i < n; i++) {
         for (let j = 0; j < 8; j++) {
-          uv[(i * 8 + j) * 2] = i / (n - 1);
           uv[(i * 8 + j) * 2 + 1] = RIB_V[j];
+          uv1[(i * 8 + j) * 2 + 1] = RIB_V[j];
         }
       }
       const idx = [];
@@ -31077,17 +31118,25 @@ void main() {
       g.setAttribute("position", new BufferAttribute(pos, 3));
       g.setAttribute("normal", new BufferAttribute(nrm, 3));
       g.setAttribute("uv", new BufferAttribute(uv, 2));
+      g.setAttribute("uv1", new BufferAttribute(uv1, 2));
       g.setIndex(idx);
       g.boundingSphere = new Sphere(new Vector3(), 14);
       this.geo = g;
       this.nrm = nrm;
+      this.arc = new Float32Array(n);
+      this.headArc = 0;
     }
     setPath(pts) {
-      const { n, hw, ht } = this;
+      const { n, hw, ht, arc } = this;
       const pos = this.geo.attributes.position.array;
       const nrm = this.nrm;
+      let acc = 0, px0 = pts[0], pz0 = pts[1];
       for (let i = 0; i < n; i++) {
         const px2 = pts[i * 2], pz2 = pts[i * 2 + 1];
+        acc += Math.hypot(px2 - px0, pz2 - pz0);
+        px0 = px2;
+        pz0 = pz2;
+        arc[i] = acc;
         const ai = Math.max(0, i - 1) * 2, bi = Math.min(n - 1, i + 1) * 2;
         let tx = pts[bi] - pts[ai], tz = pts[bi + 1] - pts[ai + 1];
         const l = Math.hypot(tx, tz) || 1;
@@ -31106,8 +31155,21 @@ void main() {
           nrm[o + j * 3 + 2] = f === 1 ? -nz : f === 3 ? nz : 0;
         }
       }
+      this.headArc = arc[this.headI];
+      const uv = this.geo.attributes.uv.array;
+      const uv1 = this.geo.attributes.uv1.array;
+      for (let i = 0; i < n; i++) {
+        const back = this.headArc - arc[i];
+        const u = back / D.tile;
+        for (let j = 0; j < 8; j++) {
+          uv[(i * 8 + j) * 2] = u;
+          uv1[(i * 8 + j) * 2] = back;
+        }
+      }
       this.geo.attributes.position.needsUpdate = true;
       this.geo.attributes.normal.needsUpdate = true;
+      this.geo.attributes.uv.needsUpdate = true;
+      this.geo.attributes.uv1.needsUpdate = true;
     }
   };
   function createCassette(labelOpts = {}) {
@@ -31268,7 +31330,7 @@ void main() {
       }
       bakeInto(spin, hubBits, false);
       const pack = new Group();
-      const side = new Mesh(new CylinderGeometry(1, 1, D.tapeW, 72, 1, true), M.packSide);
+      const side = new Mesh(new CylinderGeometry(0.998, 0.998, D.tapeW, 72, 1, true), M.packSide);
       const fT = new Mesh(new CircleGeometry(1, 72), M.packFace);
       fT.rotation.x = -Math.PI / 2;
       fT.position.y = D.tapeW / 2;
@@ -31279,23 +31341,39 @@ void main() {
       pack.add(side, fT, fB);
       spin.add(pack);
       gTape.add(grp);
-      reels.push({ grp, spin, pack });
+      const wuv = side.geometry.attributes.uv.array;
+      for (let k = 0; k < wuv.length; k += 2) {
+        wuv[k + 1] = 0.5 + RIB_EDGE + wuv[k + 1] * (0.5 - RIB_EDGE);
+      }
+      reels.push({
+        grp,
+        spin,
+        pack,
+        side,
+        faces: [fT, fB],
+        wall0: wuv.filter((_, k) => k % 2 === 0),
+        // the wall's u, as modelled
+        face0: Float32Array.from(fT.geometry.attributes.uv.array)
+        // and the disc's uv
+      });
     }
     const RG = D.guide.r;
+    const HT = D.tTape / 2;
+    const TURN = Math.PI * 2;
     const C = [{ x: -D.hub.x, z: D.hub.z }, { x: D.hub.x, z: D.hub.z }];
     const G = [{ x: -D.guide.x, z: D.guide.z }, { x: D.guide.x, z: D.guide.z }];
-    function tangentAngle(c, r, g, side) {
+    function tangentAngle(c, r, g, side, rg = RG + HT) {
       const dx = g.x - c.x, dz = g.z - c.z, L = Math.hypot(dx, dz);
-      const a = Math.atan2(dz, dx), da = Math.acos(clamp2((r - RG) / L, -1, 1));
+      const a = Math.atan2(dz, dx), da = Math.acos(clamp2((r - rg) / L, -1, 1));
       const c1 = Math.cos(a - da);
       return (side < 0 ? c1 < 0 : c1 > 0) ? a - da : a + da;
     }
-    const SEG = { p: 24, l: 10, g: 14, m: 14 };
+    const SEG = { p: 128, l: 10, g: 14, m: 14 };
     const SAMPLES = SEG.p * 2 + SEG.l * 2 + SEG.g * 2 + SEG.m + 1;
     const pts = new Float32Array(SAMPLES * 2);
     function fillPath(rL, rR) {
-      const a1 = tangentAngle(C[0], rL, G[0], -1);
-      const a2 = tangentAngle(C[1], rR, G[1], 1);
+      const a1 = tangentAngle(C[0], rL - HT, G[0], -1);
+      const a2 = tangentAngle(C[1], rR - HT, G[1], 1);
       let k = 0;
       const arc = (cx, cz, r, from, to, steps, skip) => {
         for (let i = skip ? 1 : 0; i <= steps; i++) {
@@ -31312,27 +31390,29 @@ void main() {
         }
       };
       const FRONT = Math.PI / 2;
-      arc(C[0].x, C[0].z, rL, a1 + 1.25, a1, SEG.p, false);
+      const gR = RG + HT;
+      arc(C[0].x, C[0].z, rL - HT, a1 + TURN, a1, SEG.p, false);
       line(
-        C[0].x + Math.cos(a1) * rL,
-        C[0].z + Math.sin(a1) * rL,
-        G[0].x + Math.cos(a1) * RG,
-        G[0].z + Math.sin(a1) * RG,
+        C[0].x + Math.cos(a1) * (rL - HT),
+        C[0].z + Math.sin(a1) * (rL - HT),
+        G[0].x + Math.cos(a1) * gR,
+        G[0].z + Math.sin(a1) * gR,
         SEG.l
       );
-      arc(G[0].x, G[0].z, RG, a1, FRONT, SEG.g, true);
-      line(G[0].x, G[0].z + RG, G[1].x, G[1].z + RG, SEG.m);
-      arc(G[1].x, G[1].z, RG, FRONT, a2, SEG.g, true);
+      arc(G[0].x, G[0].z, gR, a1, FRONT, SEG.g, true);
+      line(G[0].x, G[0].z + gR, G[1].x, G[1].z + gR, SEG.m);
+      arc(G[1].x, G[1].z, gR, FRONT, a2, SEG.g, true);
       line(
-        G[1].x + Math.cos(a2) * RG,
-        G[1].z + Math.sin(a2) * RG,
-        C[1].x + Math.cos(a2) * rR,
-        C[1].z + Math.sin(a2) * rR,
+        G[1].x + Math.cos(a2) * gR,
+        G[1].z + Math.sin(a2) * gR,
+        C[1].x + Math.cos(a2) * (rR - HT),
+        C[1].z + Math.sin(a2) * (rR - HT),
         SEG.l
       );
-      arc(C[1].x, C[1].z, rR, a2, a2 - 1.25, SEG.p, true);
+      arc(C[1].x, C[1].z, rR - HT, a2, a2 - TURN, SEG.p, true);
     }
-    const ribbon = new Ribbon(SAMPLES, D.tapeW / 2, 8e-3);
+    const HEAD_I = SEG.p + SEG.l + SEG.g + SEG.m / 2;
+    const ribbon = new Ribbon(SAMPLES, D.tapeW / 2, D.tTape / 2, HEAD_I);
     const tapeMesh = new Mesh(ribbon.geo, M.tape);
     tapeMesh.castShadow = false;
     gTape.add(tapeMesh);
@@ -31348,7 +31428,11 @@ void main() {
     gMid.add(mesh(box(2.42, 0.86, 0.035, 0.02), M.metalDark, 0, 0, D.guide.z - 0.4));
     const A_TOTAL = Math.PI * (D.rMax ** 2 - D.rHub ** 2) * 2;
     const radius = (a) => Math.sqrt(Math.max(a, 0) / Math.PI + D.rHub ** 2);
-    const REW_SECONDS = 4.2;
+    const TAPE_LEN = A_TOTAL / D.tTape;
+    const LEAD = TAPE_LEN * D.lead;
+    const STRIP = TAPE_LEN + LEAD * 2;
+    M.tape.alphaMap.repeat.x = 1 / STRIP;
+    const REW_SECONDS = 8.5;
     const st = {
       areaL: A_TOTAL,
       rL: 0,
@@ -31367,6 +31451,36 @@ void main() {
     st.rR = radius(A_TOTAL - st.areaL);
     fillPath(st.rL, st.rR);
     ribbon.setPath(pts);
+    function alignTape() {
+      const s0 = (A_TOTAL - st.areaL) / D.tTape;
+      const off = s0 / D.tile % 1;
+      M.tape.map.offset.x = off;
+      M.tape.roughnessMap.offset.x = off;
+      M.tape.normalMap.offset.x = off;
+      M.tape.alphaMap.offset.x = (LEAD + s0) / STRIP;
+    }
+    alignTape();
+    const lastPack = [-1, -1];
+    function alignPack(i) {
+      const r = i ? st.rR : st.rL;
+      if (Math.abs(r - lastPack[i]) < 2e-3) return;
+      lastPack[i] = r;
+      const body = r - D.tTape;
+      const s = 2 * body * EDGE_PITCH / D.tTape;
+      const src = reels[i].face0;
+      for (const disc of reels[i].faces) {
+        const uv = disc.geometry.attributes.uv;
+        for (let k = 0; k < uv.array.length; k++) uv.array[k] = 0.5 + (src[k] - 0.5) * s;
+        uv.needsUpdate = true;
+      }
+      const wall = reels[i].side.geometry.attributes.uv;
+      const w0 = reels[i].wall0;
+      const tiles = Math.max(2, Math.round(Math.PI * 2 * body / D.tile));
+      for (let k = 0; k < w0.length; k++) wall.array[k * 2] = w0[k] * tiles;
+      wall.needsUpdate = true;
+    }
+    alignPack(0);
+    alignPack(1);
     const anchor = (parent, x, y, z) => {
       const o = new Object3D();
       o.position.set(x, y, z);
@@ -31409,6 +31523,7 @@ void main() {
       st.rL = radius(st.areaL);
       st.rR = radius(A_TOTAL - st.areaL);
       st.time = (A_TOTAL - st.areaL) / A_TOTAL * st.duration;
+      alignTape();
       const dA = (st.areaL - spinArea) / Math.max(dt, 1e-4);
       spinArea = st.areaL;
       if (Math.abs(dA) > 1e-9) {
@@ -31416,8 +31531,11 @@ void main() {
         reels[0].spin.rotation.y = foldAngle(reels[0].spin.rotation.y + vTape / Math.max(st.rL, 0.25) * dt);
         reels[1].spin.rotation.y = foldAngle(reels[1].spin.rotation.y + vTape / Math.max(st.rR, 0.25) * dt);
       }
-      reels[0].pack.scale.set(st.rL, 1, st.rL);
-      reels[1].pack.scale.set(st.rR, 1, st.rR);
+      const bl = st.rL - D.tTape, br = st.rR - D.tTape;
+      reels[0].pack.scale.set(bl, 1, bl);
+      reels[1].pack.scale.set(br, 1, br);
+      alignPack(0);
+      alignPack(1);
       if (lastR < 0 || Math.abs(st.rL - lastR) > 15e-4 || Math.abs(st.rR - lastR) > 15e-4) {
         fillPath(st.rL, st.rR);
         ribbon.setPath(pts);
@@ -34180,11 +34298,11 @@ void main() {
     render();
   }
   var ANNOS = [
-    { key: "shell", side: "left", n: "01", t: "\u70DF\u7070\u4E0A\u58F3", s: "POLYCARBONATE \xB7 1.1 mm" },
     { key: "glass", side: "left", n: "02", t: "\u89C2\u5BDF\u7A97", s: "PC GLASS \xB7 TRANSMISSION 1.0" },
-    { key: "screw", side: "left", n: "03", t: "\u81EA\u653B\u87BA\u9489", s: "STEEL \xB7 M2 \xD7 5 \xB7 \xD75" },
+    { key: "shell", side: "left", n: "01", t: "\u70DF\u7070\u4E0A\u58F3", s: "POLYCARBONATE \xB7 1.1 mm" },
+    { key: "hub", side: "left", n: "05", t: "\u8F6E\u6BC2\u4E0E\u5E26\u76D8", s: "POM \xB7 6-SPLINE \xB7 \u230012" },
     { key: "tape", side: "left", n: "04", t: "\u78C1\u5E26", s: "\u03B3-Fe\u2082O\u2083 \xB7 3.81 mm" },
-    { key: "hub", side: "left", n: "05", t: "\u8F6E\u6BC2\u4E0E\u5E26\u76D8", s: "POM \xB7 6-SPLINE \xB7 \u230012" }
+    { key: "screw", side: "left", n: "03", t: "\u81EA\u653B\u87BA\u9489", s: "STEEL \xB7 M2 \xD7 5 \xB7 \xD75" }
   ];
   var ui = document.querySelector(".ui");
   var lines = $("#lines");
@@ -34340,7 +34458,7 @@ void main() {
     const G = T.grade ?? {};
     grade.uniforms.uGrain.value = to(grade.uniforms.uGrain.value, G.grain ?? 0.05);
     grade.uniforms.uCA.value = to(grade.uniforms.uCA.value, G.ca ?? 0.85);
-    grade.uniforms.uVig.value = to(grade.uniforms.uVig.value, prefs.vig ? G.vig ?? 0.85 : 0);
+    grade.uniforms.uVig.value = to(grade.uniforms.uVig.value, (G.vig ?? 0.85) * prefs.vig);
     grade.uniforms.uSat.value = to(grade.uniforms.uSat.value, G.sat ?? 1);
     grade.uniforms.uEdge.value = to(grade.uniforms.uEdge.value, G.edge ?? 1);
     grade.uniforms.uFocus.value = to(grade.uniforms.uFocus.value, G.focus ?? 0.26);
@@ -35163,10 +35281,14 @@ void main() {
   }
   var toggleIndex = () => indexOpen ? closeIndex() : openIndex();
   var PREF_KEY = "ohmtape.prefs";
-  var prefs = { intro: true, loop: true, hiss: true, keys: true, mirror: true, vig: false };
+  var prefs = { intro: true, loop: true, hiss: true, keys: true, mirror: true, vig: 0 };
   try {
     const saved = JSON.parse(localStorage.getItem(PREF_KEY) || "{}");
-    for (const k of Object.keys(prefs)) if (typeof saved[k] === "boolean") prefs[k] = saved[k];
+    for (const k of Object.keys(prefs)) {
+      const v = saved[k];
+      if (typeof v === "boolean") prefs[k] = k === "vig" ? v ? 1 : 0 : v;
+      else if (k === "vig" && typeof v === "number") prefs[k] = clamp2(v, 0, 1);
+    }
   } catch {
   }
   var savePrefs = () => {
@@ -35181,7 +35303,7 @@ void main() {
     { k: "hiss", cn: "\u78C1\u5E26\u5E95\u566A", en: "TAPE BED", note: "\u8D70\u5E26\u65F6\u7684\u5636\u58F0\u4E0E\u9A6C\u8FBE\u55E1\u58F0\uFF0C\u4E0D\u542B\u6362\u5411\u58F0\u4E0E\u65CB\u94AE\u58F0\u3002" },
     { k: "keys", cn: "\u6309\u952E\u63D0\u793A", en: "KEY LEGEND", note: "\u5E95\u90E8\u90A3\u884C\u5FEB\u6377\u952E\u8BF4\u660E\u3002" },
     { k: "mirror", cn: "\u5730\u9762\u955C\u50CF", en: "FLOOR MIRROR", note: "\u5730\u9762\u5B9E\u65F6\u53CD\u5C04\uFF0C\u5173\u6389\u53EF\u7701\u4E00\u6574\u904D\u573A\u666F\u6E32\u67D3\u3002" },
-    { k: "vig", cn: "\u6697\u89D2", en: "VIGNETTE", note: "\u753B\u9762\u56DB\u5468\u538B\u6697\uFF0C\u50CF\u955C\u5934\u524D\u7684\u906E\u5149\u7F69\u3002\u9ED8\u8BA4\u5173\u3002" }
+    { k: "vig", cn: "\u6697\u89D2", en: "VIGNETTE", dial: true, note: "\u753B\u9762\u56DB\u5468\u538B\u6697\uFF0C\u50CF\u955C\u5934\u524D\u7684\u906E\u5149\u7F69\u3002\u6ED1\u6761\u8C03\u7684\u662F\u5F3A\u5EA6\uFF0C\u4E09\u5957\u706F\u5149\u5404\u7559\u81EA\u5DF1\u7684\u6DF1\u6D45\u3002" }
   ];
   function applyPref(k) {
     if (k === "hiss") audio.setLevel(bedLevel());
@@ -35195,8 +35317,20 @@ void main() {
   var setList = $("#set-list");
   var settingsBtn = $("#btn-settings");
   var setOpen = false;
+  var DIAL_STEPS = 20;
+  function paintDial(s) {
+    const v = prefs[s.k];
+    s.dialEl.value = String(v);
+    s.dialEl.style.setProperty("--fill", (v * 100).toFixed(1) + "%");
+    s.valEl.textContent = v > 0 ? Math.round(v * 100) + "%" : "\u5173";
+    s.dialEl.setAttribute("aria-valuetext", s.valEl.textContent);
+  }
   function syncSettings() {
     for (const s of SETTINGS) {
+      if (s.dial) {
+        paintDial(s);
+        continue;
+      }
       for (const b of s.seg.children) {
         const on = b.dataset.v === "1" === prefs[s.k];
         b.classList.toggle("on", on);
@@ -35210,7 +35344,7 @@ void main() {
     savePrefs();
     applyPref(s.k);
     syncSettings();
-    audio.tick();
+    if (!s.dial) audio.tick();
     document.body.classList.add("moved");
   }
   function buildSettings() {
@@ -35220,6 +35354,34 @@ void main() {
       const t2 = document.createElement("div");
       t2.className = "set-t";
       t2.innerHTML = `<b>${s.cn}</b><i>${s.en}</i><em>${s.note}</em>`;
+      if (s.dial) {
+        const box2 = document.createElement("div");
+        box2.className = "set-dial";
+        const r = document.createElement("input");
+        r.type = "range";
+        r.min = "0";
+        r.max = "1";
+        r.step = String(1 / DIAL_STEPS);
+        r.className = "ui-hit";
+        r.setAttribute("aria-label", `${s.cn}\u5F3A\u5EA6`);
+        const out = document.createElement("b");
+        out.className = "set-val";
+        let detent = Math.round(prefs.vig * DIAL_STEPS);
+        r.addEventListener("input", () => {
+          const v = Number(r.value);
+          const k = Math.round(v * DIAL_STEPS);
+          if (k !== detent) {
+            detent = k;
+            audio.tick();
+          }
+          setPref(s, v);
+        });
+        box2.append(r, out);
+        s.dialEl = r;
+        s.valEl = out;
+        li.append(t2, box2);
+        return li;
+      }
       const seg = document.createElement("div");
       seg.className = "seg";
       for (const v of [true, false]) {
@@ -35428,6 +35590,7 @@ void main() {
       readRecord();
       return;
     }
+    if (e.target?.type === "range") return;
     if (k === "ArrowUp") {
       e.preventDefault();
       moveRecord(-1);

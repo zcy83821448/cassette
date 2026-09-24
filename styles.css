@@ -524,6 +524,42 @@ body.moved .hud-c { opacity: .42; }
 }
 .set-t em { font-style: normal; font-size: 11.5px; line-height: 1.5; color: var(--ink-dim); }
 .set-row .seg { flex: none; }
+/* the sheet's one dial. Same rail language as the segmented control — a hairline
+   with ink for what is set — but continuous: the ink length is `--fill`, written
+   by the row's own painter, and the handle is a tick on the rail rather than a
+   knob, because nothing else on this page has a round thumb either. The number
+   beside it is the deck's own mono read-out. */
+.set-dial { flex: none; display: flex; align-items: center; gap: 14px; }
+.set-val {
+  min-width: 34px; text-align: right; font-family: var(--mono);
+  font-size: 10.5px; letter-spacing: .08em; font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.set-dial input[type="range"] {
+  appearance: none; -webkit-appearance: none; display: block;
+  width: 132px; height: 26px; margin: 0; padding: 0; border: 0; background: none;
+  cursor: pointer; pointer-events: auto;
+}
+.set-dial input[type="range"]::-webkit-slider-runnable-track {
+  height: 1px;
+  background: linear-gradient(90deg, var(--ink) var(--fill, 0%), var(--hair) var(--fill, 0%));
+}
+.set-dial input[type="range"]::-moz-range-track {
+  height: 1px;
+  background: linear-gradient(90deg, var(--ink) var(--fill, 0%), var(--hair) var(--fill, 0%));
+}
+.set-dial input[type="range"]::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none; width: 3px; height: 13px;
+  margin-top: -6px; border: 0; border-radius: 0; background: var(--ink);
+}
+.set-dial input[type="range"]::-moz-range-thumb {
+  width: 3px; height: 13px; border: 0; border-radius: 0; background: var(--ink);
+}
+.set-dial input[type="range"]:hover::-webkit-slider-thumb,
+.set-dial input[type="range"]:focus-visible::-webkit-slider-thumb { background: var(--accent); }
+.set-dial input[type="range"]:hover::-moz-range-thumb,
+.set-dial input[type="range"]:focus-visible::-moz-range-thumb { background: var(--accent); }
+.set-dial input[type="range"]:focus-visible { outline: none; }
 /* the key legend has no switch of its own in the deck: it is a setting */
 body.keys-off .hud-c { display: none; }
 .index-top { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 1px solid var(--hair); padding-bottom: 14px; }

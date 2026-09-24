@@ -24,6 +24,8 @@ export const DIM = {
   rHub: 0.615, rMax: 2.02,
   tTape: 0.030,                // visual layer thickness (transfer rate)
   v: 4.76,                     // cm/s
+  tile: 0.20,                  // cm of tape per repeat of the coating texture
+  lead: 0.010,                 // the clear leader, as a share of the tape's length
   podX: 4.30, podZ: 2.40,
 };
 const D = DIM;
@@ -197,14 +199,61 @@ export function createMaterials(labelOpts = {}) {
   const rgh = TX.roughTex(512, { lo: 0.40, hi: 0.72, seed: 5 });
   const paperN = TX.normalTex(512, { octaves: 6, strength: 2.6, seed: 31 });
   const brush = TX.brushedTexture(512, [152, 154, 160]);
-  // tape grain is fine and runs lengthwise — 60 tiles along the ribbon's path
-  const tapeM = TX.tapeMaps(512);
+  // tape grain is fine and runs lengthwise. One repeat, one tile per `D.tile` of
+  // tape — the ribbon's own u is already counted in those units (see Ribbon), so
+  // the coating is slid by a single number on `offset.x` rather than by rebuilding
+  // the ribbon's uvs every frame.
+  const tapeM = TX.tapeMaps(512, RIB_EDGE);
   for (const m of [tapeM.map, tapeM.roughnessMap, tapeM.normalMap]) {
     m.wrapS = m.wrapT = THREE.RepeatWrapping;
-    m.repeat.set(60, 1);
+    m.repeat.set(1, 1);
     m.anisotropy = 16;
     m.needsUpdate = true;
   }
+  // and the clear leader, on a channel of its own. Its u spans the whole strip —
+  // the magnetic tape plus a leader at each end — so the share the band takes is
+  // `lead` of the tape over the strip the tape and its two leaders make.
+  const leadA = TX.leaderAlpha(2048, 128, { lead: D.lead / (1 + 2 * D.lead), cut: RIB_EDGE });
+  leadA.channel = 1;
+
+  // transparent, and depth-writing still: the oxide is opaque and wants the
+  // depth it always had (the AO and the toon ink both read the depth buffer,
+  // and an outline that stops at the tape is worse than a leader that cannot
+  // quite be seen through). forceSinglePass because the ribbon is a closed
+  // prism — there is no back face to draw, and three would build a second
+  // program for it every frame.
+  const tape = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff, map: tapeM.map,
+    alphaMap: leadA, transparent: true, forceSinglePass: true,
+    roughness: 1.0, roughnessMap: tapeM.roughnessMap,
+    metalness: 0.08,
+    normalMap: tapeM.normalMap, normalScale: new THREE.Vector2(0.55, 0.55),
+    // the coating is drawn on lengthwise, so the highlight streaks along the
+    // tape rather than sitting as a round blob
+    anisotropy: 0.55, anisotropyRotation: 0,
+    sheen: 0.45, sheenColor: new THREE.Color(0x9c6636), sheenRoughness: 0.45,
+    iridescence: 0.12, iridescenceIOR: 1.28, iridescenceThicknessRange: [120, 420],
+    clearcoat: 0.18, clearcoatRoughness: 0.42,
+    envMapIntensity: 0.9, side: THREE.DoubleSide,
+  });
+  /* The outside of a pack *is* the tape — the outermost layer, seen from the
+     outside — so it is not given a material of its own that resembles the tape's,
+     it is given the tape's: cloned, so the same maps, the same anisotropy (round
+     the circumference, which is the tape's length) and the same sheen follow any
+     change to the tape itself. What it drops is what only belongs to a stretch of
+     tape: the leader's alpha and two-sidedness. The wall is a winding, and its
+     coating is fixed to the reel rather than sliding along it (see alignPack). */
+  const packSide = tape.clone();
+  packSide.alphaMap = null;
+  packSide.transparent = false;
+  packSide.forceSinglePass = false;
+  packSide.side = THREE.FrontSide;
+  /* ...with copies of the tape's three maps rather than the maps themselves. The
+     ribbon's coating slides along it — `alignTape` writes `offset.x` on those
+     three every frame — and the outside of a pack does not slide, it turns with
+     the reel. Copying them is what lets the wall wear exactly the tape's grain
+     without inheriting the tape's travel. */
+  for (const k of ['map', 'roughnessMap', 'normalMap']) packSide[k] = tape[k].clone();
 
   const labelMap = (face) => makeLabelMap(face, labelOpts);
 
@@ -259,26 +308,21 @@ export function createMaterials(labelOpts = {}) {
       normalMap: micro2, normalScale: new THREE.Vector2(1.3, 1.3), envMapIntensity: 0.35,
       sheen: 0.5, sheenColor: new THREE.Color(0x6b5a48), sheenRoughness: 0.9,
     }),
-    tape: new THREE.MeshPhysicalMaterial({
-      color: 0xffffff, map: tapeM.map,
-      roughness: 1.0, roughnessMap: tapeM.roughnessMap,
-      metalness: 0.08,
-      normalMap: tapeM.normalMap, normalScale: new THREE.Vector2(0.55, 0.55),
-      // the coating is drawn on lengthwise, so the highlight streaks along the
-      // tape rather than sitting as a round blob
-      anisotropy: 0.55, anisotropyRotation: 0,
-      sheen: 0.45, sheenColor: new THREE.Color(0x9c6636), sheenRoughness: 0.45,
-      iridescence: 0.12, iridescenceIOR: 1.28, iridescenceThicknessRange: [120, 420],
-      clearcoat: 0.18, clearcoatRoughness: 0.42,
-      envMapIntensity: 0.9, side: THREE.DoubleSide,
-    }),
+    tape,
+    packSide,
+    /* The pack's top face: the stacked cut edges of every layer on it, so it is
+       lit like the cut edges are — the tape's metalness, the tape's sheen, the
+       gloss the cut band has in `tapeMaps` (0.20–0.34 → 0.28 here). Only the
+       *rings* in it are the pack's own, and their colour is that same band's:
+       see tapeEdgeTexture. Two of the tape's properties are deliberately not
+       carried over: anisotropy, because a disc's grain runs round it and an
+       anisotropy rotation is one direction for a whole mesh; and iridescence,
+       which models the coating's thin film — and this disc is the PET between
+       the layers, not the coating. */
     packFace: new THREE.MeshPhysicalMaterial({
-      map: TX.tapeEdgeTexture(1024), metalness: 0.05, roughness: 0.40,
-      sheen: 0.55, sheenColor: new THREE.Color(0x9a6534), envMapIntensity: 1.15,
-    }),
-    packSide: new THREE.MeshPhysicalMaterial({
-      color: 0x4a3524, metalness: 0.08, roughness: 0.26,
-      sheen: 0.75, sheenColor: new THREE.Color(0xa8703c), sheenRoughness: 0.38, envMapIntensity: 1.2,
+      map: TX.tapeEdgeTexture(1024, BORE_V), metalness: 0.08, roughness: 0.28,
+      sheen: 0.45, sheenColor: new THREE.Color(0x9c6636), sheenRoughness: 0.45,
+      clearcoat: 0.18, clearcoatRoughness: 0.42, envMapIntensity: 0.9,
     }),
     labelA: new THREE.MeshPhysicalMaterial({
       map: labelMap('A'), metalness: 0, roughness: 0.84,
@@ -297,10 +341,27 @@ export function createMaterials(labelOpts = {}) {
 
 /* ============================== tape ribbon ============================= */
 /* One ring = 8 vertices, two per cross-section face, so each face gets its own
-   UV band. The bands are cut to the real cross-section perimeter (edges are
-   16 µm of a 794 µm perimeter, the two broad faces split the rest), which keeps
-   texel density even around the tape and lets the oxide face, the back coating
-   and the cut edges carry different material. */
+   UV band. The bands are cut to the cross-section's actual perimeter, which
+   keeps texel density even around the tape and lets the oxide face, the back
+   coating and the cut edges carry different material.
+
+   And the cross-section is 3.81 mm by **one drawn layer** — `DIM.tTape`, the same
+   0.3 mm the transport unwinds per turn and the same 0.3 mm one ring of the
+   pack's top face is (see `alignPack`). That is the invariant this model is now
+   built on: a layer of tape is one thickness everywhere it can be seen, so the
+   ribbon that leaves the pack sits flush with the windings it came out of. The
+   medium itself is 12 µm; the model is 25× that, which is what makes a 5 minute
+   song worth watching a pack unwind for. Both the geometry's v bands and the
+   texture's are derived from the one number below, so they cannot drift apart. */
+const RIB_EDGE = D.tTape / (2 * (D.tapeW + D.tTape));   // one cut edge, as a share of the perimeter
+/* How much of a pack's top face the hub stands on, as a share of the texture
+   that face is drawn with. It is a *constant* even though the packs change size,
+   because `alignPack` scales that disc until one layer is one ring: whatever is
+   inside the hub's radius is always the same length of tape, so it always lands
+   on the same part of the texture. Nothing is drawn there — the tape winds round
+   the hub rather than through it, and the spindle hole should show the dark of
+   the shell, not layers. */
+const BORE_V = (D.hub.r * 2 * TX.EDGE_PITCH) / D.tTape;
 const RIB_CORNERS = [[1, 1], [-1, 1], [-1, -1], [1, -1]];   // (normal side, up)
 const RIB_MAP = [0, 1, 1, 2, 2, 3, 3, 0];
 /* the same table split into its two columns, so the ribbon's inner loop — eight
@@ -309,19 +370,42 @@ const RIB_MAP = [0, 1, 1, 2, 2, 3, 3, 0];
    pair out of a pair out of an array */
 const RIB_SN = RIB_MAP.map((i) => RIB_CORNERS[i][0]);
 const RIB_SY = RIB_MAP.map((i) => RIB_CORNERS[i][1]);
-const RIB_V = [0, 0.02, 0.02, 0.50, 0.50, 0.52, 0.52, 1.0];
+const RIB_V = [0, RIB_EDGE, RIB_EDGE, 0.5, 0.5, 0.5 + RIB_EDGE, 0.5 + RIB_EDGE, 1.0];
 
+/* The ribbon carries two uv channels, and the difference between them is the
+   whole reason the tape can move and still end where it ends.
+
+     uv  (channel 0) is arc length along the *path*, in units of `D.tile`, so the
+         coating texture is laid on at an even density the whole way round — the
+         old i / (n - 1) ran the sampler off the sample count, and the samples are
+         not evenly spaced (a 14-step run across the head is 3.5 cm, the same 14
+         steps round a 1.7 mm guide pin is half a millimetre, so the grain was
+         being stretched 60× between the two). It is written once per rebuild and
+         then *slid* by one texture offset.
+
+     uv1 (channel 1) is the tape's own material coordinate, in cm, measured from
+         the head: material at the path's start has already run past the head by
+         the free span's length, and material at the end of the path is about to.
+         The leader alpha lives on this channel, because only a coordinate that
+         knows where the *tape's* ends are can put a band at 1% and 99% of it —
+         anything tiled to the path would repeat that band every 20 cm.
+
+   Both channels run backwards (the head's arc minus the sample's), which is what
+   the tape does: the material entering the free span is the newer material, so a
+   mark on the tape travels toward the take-up as the position climbs. */
 class Ribbon {
-  constructor(n, hw, ht) {
+  constructor(n, hw, ht, headI) {
     this.n = n; this.hw = hw; this.ht = ht;
+    this.headI = headI;
     const g = new THREE.BufferGeometry();
     const pos = new Float32Array(n * 8 * 3);
     const nrm = new Float32Array(n * 8 * 3);
     const uv = new Float32Array(n * 8 * 2);
+    const uv1 = new Float32Array(n * 8 * 2);
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < 8; j++) {
-        uv[(i * 8 + j) * 2] = i / (n - 1);
         uv[(i * 8 + j) * 2 + 1] = RIB_V[j];
+        uv1[(i * 8 + j) * 2 + 1] = RIB_V[j];
       }
     }
     const idx = [];
@@ -335,17 +419,24 @@ class Ribbon {
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
     g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setAttribute('uv1', new THREE.BufferAttribute(uv1, 2));
     g.setIndex(idx);
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 14);
     this.geo = g;
     this.nrm = nrm;
+    this.arc = new Float32Array(n);      // arc length at each sample, cm
+    this.headArc = 0;                    // arc length at the head
   }
   setPath(pts) {
-    const { n, hw, ht } = this;
+    const { n, hw, ht, arc } = this;
     const pos = this.geo.attributes.position.array;
     const nrm = this.nrm;
+    let acc = 0, px0 = pts[0], pz0 = pts[1];
     for (let i = 0; i < n; i++) {
       const px = pts[i * 2], pz = pts[i * 2 + 1];
+      acc += Math.hypot(px - px0, pz - pz0);
+      px0 = px; pz0 = pz;
+      arc[i] = acc;
       const ai = Math.max(0, i - 1) * 2, bi = Math.min(n - 1, i + 1) * 2;
       let tx = pts[bi] - pts[ai], tz = pts[bi + 1] - pts[ai + 1];
       const l = Math.hypot(tx, tz) || 1;
@@ -368,8 +459,21 @@ class Ribbon {
         nrm[o + j * 3 + 2] = f === 1 ? -nz : f === 3 ? nz : 0;
       }
     }
+    this.headArc = arc[this.headI];
+    const uv = this.geo.attributes.uv.array;
+    const uv1 = this.geo.attributes.uv1.array;
+    for (let i = 0; i < n; i++) {
+      const back = this.headArc - arc[i];           // cm behind the head, negative ahead
+      const u = back / D.tile;
+      for (let j = 0; j < 8; j++) {
+        uv[(i * 8 + j) * 2] = u;
+        uv1[(i * 8 + j) * 2] = back;
+      }
+    }
     this.geo.attributes.position.needsUpdate = true;
     this.geo.attributes.normal.needsUpdate = true;
+    this.geo.attributes.uv.needsUpdate = true;
+    this.geo.attributes.uv1.needsUpdate = true;
   }
 }
 
@@ -597,7 +701,11 @@ export function createCassette(labelOpts = {}) {
     }
     bakeInto(spin, hubBits, false);
     const pack = new THREE.Group();
-    const side = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, D.tapeW, 72, 1, true), M.packSide);
+    // The pack's body is one layer smaller than the pack's radius, because the
+    // outermost layer is the ribbon itself (see `fillPath`, and the pack's scale
+    // in update), and the wall is a hair inside even that so nothing is ever
+    // coplanar with the ribbon's own surface.
+    const side = new THREE.Mesh(new THREE.CylinderGeometry(0.998, 0.998, D.tapeW, 72, 1, true), M.packSide);
     const fT = new THREE.Mesh(new THREE.CircleGeometry(1, 72), M.packFace);
     fT.rotation.x = -Math.PI / 2; fT.position.y = D.tapeW / 2;
     const fB = new THREE.Mesh(new THREE.CircleGeometry(1, 72), M.packFace);
@@ -606,28 +714,62 @@ export function createCassette(labelOpts = {}) {
     pack.add(side, fT, fB);
     spin.add(pack);
     gTape.add(grp);
-    reels.push({ grp, spin, pack });
+    // The wall wears the same coating texture as the ribbon, so its v has to be
+    // the oxide face's band of it and nothing else: the other three bands are the
+    // tape's back coat and the two cut edges, and none of those is the surface of
+    // a pack. (v runs 0 at the bottom of the cylinder — the tape's edge — to 1 at
+    // the top, so the band maps straight across.) Its u is counted in tiles round
+    // the circumference, which `alignPack` does, because the circumference is not
+    // the same length on the two reels.
+    const wuv = side.geometry.attributes.uv.array;
+    for (let k = 0; k < wuv.length; k += 2) {
+      wuv[k + 1] = 0.5 + RIB_EDGE + wuv[k + 1] * (0.5 - RIB_EDGE);
+    }
+    reels.push({
+      grp, spin, pack, side,
+      faces: [fT, fB],
+      wall0: wuv.filter((_, k) => k % 2 === 0),          // the wall's u, as modelled
+      face0: Float32Array.from(fT.geometry.attributes.uv.array),   // and the disc's uv
+    });
   }
 
-  /* ---------------- tape path ---------------- */
+  /* ---------------- tape path ----------------
+     The path is the tape's *centre line*, and the tape lies **on** what it
+     touches rather than through it: on a pack its inner face is at the pack's
+     radius, so its centre line is half a thickness inside that (and the pack's
+     own meshes are one whole thickness smaller — see the reel loop), and on a
+     guide pin it is half a thickness outside the pin. Both offsets are the same
+     `HT`, so a tangent between a pack and a guide stays a tangent to the tape. */
   const RG = D.guide.r;
+  const HT = D.tTape / 2;
+  const TURN = Math.PI * 2;
   const C = [{ x: -D.hub.x, z: D.hub.z }, { x: D.hub.x, z: D.hub.z }];
   const G = [{ x: -D.guide.x, z: D.guide.z }, { x: D.guide.x, z: D.guide.z }];
   /** outward tangent normal angle from a pack to its guide */
-  function tangentAngle(c, r, g, side) {
+  function tangentAngle(c, r, g, side, rg = RG + HT) {
     const dx = g.x - c.x, dz = g.z - c.z, L = Math.hypot(dx, dz);
-    const a = Math.atan2(dz, dx), da = Math.acos(clamp((r - RG) / L, -1, 1));
+    const a = Math.atan2(dz, dx), da = Math.acos(clamp((r - rg) / L, -1, 1));
     const c1 = Math.cos(a - da);
     return (side < 0 ? c1 < 0 : c1 > 0) ? a - da : a + da;
   }
-  const SEG = { p: 24, l: 10, g: 14, m: 14 };
+  /* A pack's arc is a *whole* turn, not a token wrap: the outer layer of a wound
+     pack is one circumference of tape, so drawing one circumference of ribbon on
+     it is not an approximation — it is that layer. It also means the tape
+     arriving from the guides and the tape lying on the pack are the same strip,
+     the same material and the same texture, so there is nothing to seam: the
+     coating runs off the free span and round the pack and back to where it
+     leaves. (It used to be 1.25 rad, and the pack under it was a cylinder with a
+     material of its own, which is exactly where the join showed.) 128 steps is
+     under a degree and a half per step at the largest pack: smooth enough that
+     no facet reads, cheap enough to rebuild while the radius moves. */
+  const SEG = { p: 128, l: 10, g: 14, m: 14 };
   const SAMPLES = SEG.p * 2 + SEG.l * 2 + SEG.g * 2 + SEG.m + 1;
   // flat [x,z,x,z,…]: rebuilding this every frame used to allocate 111 small
   // arrays, which is pure GC pressure at 165 fps
   const pts = new Float32Array(SAMPLES * 2);
   function fillPath(rL, rR) {
-    const a1 = tangentAngle(C[0], rL, G[0], -1);
-    const a2 = tangentAngle(C[1], rR, G[1], 1);
+    const a1 = tangentAngle(C[0], rL - HT, G[0], -1);
+    const a2 = tangentAngle(C[1], rR - HT, G[1], 1);
     let k = 0;
     const arc = (cx, cz, r, from, to, steps, skip) => {
       for (let i = skip ? 1 : 0; i <= steps; i++) {
@@ -644,18 +786,25 @@ export function createCassette(labelOpts = {}) {
       }
     };
     const FRONT = Math.PI / 2;   // +z tangent of a guide
-    arc(C[0].x, C[0].z, rL, a1 + 1.25, a1, SEG.p, false);                                    // top layer of left pack
-    line(C[0].x + Math.cos(a1) * rL, C[0].z + Math.sin(a1) * rL,
-      G[0].x + Math.cos(a1) * RG, G[0].z + Math.sin(a1) * RG, SEG.l);                        // -> left guide
-    arc(G[0].x, G[0].z, RG, a1, FRONT, SEG.g, true);                                          // wrap left guide
-    line(G[0].x, G[0].z + RG, G[1].x, G[1].z + RG, SEG.m);                                    // across the head
-    arc(G[1].x, G[1].z, RG, FRONT, a2, SEG.g, true);                                          // wrap right guide
-    line(G[1].x + Math.cos(a2) * RG, G[1].z + Math.sin(a2) * RG,
-      C[1].x + Math.cos(a2) * rR, C[1].z + Math.sin(a2) * rR, SEG.l);                        // -> right pack
-    arc(C[1].x, C[1].z, rR, a2, a2 - 1.25, SEG.p, true);                                      // top layer of right pack
+    const gR = RG + HT;          // where the tape's centre line wraps a guide
+    arc(C[0].x, C[0].z, rL - HT, a1 + TURN, a1, SEG.p, false);                                // the whole outer layer of the left pack
+    line(C[0].x + Math.cos(a1) * (rL - HT), C[0].z + Math.sin(a1) * (rL - HT),
+      G[0].x + Math.cos(a1) * gR, G[0].z + Math.sin(a1) * gR, SEG.l);                         // -> left guide
+    arc(G[0].x, G[0].z, gR, a1, FRONT, SEG.g, true);                                          // wrap left guide
+    line(G[0].x, G[0].z + gR, G[1].x, G[1].z + gR, SEG.m);                                    // across the head
+    arc(G[1].x, G[1].z, gR, FRONT, a2, SEG.g, true);                                          // wrap right guide
+    line(G[1].x + Math.cos(a2) * gR, G[1].z + Math.sin(a2) * gR,
+      C[1].x + Math.cos(a2) * (rR - HT), C[1].z + Math.sin(a2) * (rR - HT), SEG.l);           // -> right pack
+    arc(C[1].x, C[1].z, rR - HT, a2, a2 - TURN, SEG.p, true);                                 // the whole outer layer of the right pack
   }
 
-  const ribbon = new Ribbon(SAMPLES, D.tapeW / 2, 0.008);
+  /* the sample standing in front of the head: the middle of the run that crosses
+     it. It is where the tape's own coordinate is measured from, so it has to be
+     the run the head reads and not, say, the first sample of the loop. */
+  const HEAD_I = SEG.p + SEG.l + SEG.g + SEG.m / 2;
+  // half the thickness: the ribbon is one drawn layer thick, which is the same
+  // 0.3 mm a turn of the reel adds to a pack's radius (see RIB_EDGE)
+  const ribbon = new Ribbon(SAMPLES, D.tapeW / 2, D.tTape / 2, HEAD_I);
   const tapeMesh = new THREE.Mesh(ribbon.geo, M.tape);
   tapeMesh.castShadow = false;
   gTape.add(tapeMesh);
@@ -675,7 +824,22 @@ export function createCassette(labelOpts = {}) {
   /* ---------------- transport state ---------------- */
   const A_TOTAL = Math.PI * (D.rMax ** 2 - D.rHub ** 2) * 2;
   const radius = (a) => Math.sqrt(Math.max(a, 0) / Math.PI + D.rHub ** 2);
-  const REW_SECONDS = 4.2;                     // a full rewind always takes this long
+  /* The tape's own length in the units the transport counts in (the layer
+     thickness is the model's, not the medium's — see DIM.tTape), and the clear
+     leader at each end of it. A real leader is 15 cm against 194 m of tape; here
+     it is 1% of the tape, which at the drawn speed is three seconds of clear PET
+     running past the head — long enough to be the thing you notice at the end of
+     a side, which is exactly what it is for. */
+  const TAPE_LEN = A_TOTAL / D.tTape;          // cm of tape, drawn
+  const LEAD = TAPE_LEN * D.lead;              // cm of leader at each end
+  const STRIP = TAPE_LEN + LEAD * 2;
+  M.tape.alphaMap.repeat.x = 1 / STRIP;        // uv1 is in cm (see Ribbon)
+  /* A full rewind always takes this long. A deck spools a side back in about a
+     fortieth of the time it took to play it: this side plays in 5:17, so eight
+     seconds and a half. At the 4.2 s this used to be, the rim was turning ten
+     times a second at the start of the spool-back and fifty at the end of it —
+     a blur, which is not what a rewind looks like. */
+  const REW_SECONDS = 8.5;
   const st = {
     areaL: A_TOTAL, rL: 0, rR: 0, playing: false, dir: -1,
     explode: 0, explodeTarget: 0, flip: 0, flipTarget: 0,
@@ -684,6 +848,57 @@ export function createCassette(labelOpts = {}) {
   st.rL = radius(st.areaL); st.rR = radius(A_TOTAL - st.areaL);
   fillPath(st.rL, st.rR);
   ribbon.setPath(pts);
+
+  /** Where the coating sits on the tape, and where the leader falls on it. Both
+      are one offset each: the ribbon's uv channels are arc length and the tape's
+      own length (see Ribbon), so a frame of running tape costs four numbers and
+      no upload, and the leader lands at either end of the *tape* because that is
+      what its coordinate is measured in — not at either end of the path, which is
+      where a band drawn into the tiled texture would repeat itself every 20 cm. */
+  function alignTape() {
+    const s0 = (A_TOTAL - st.areaL) / D.tTape;      // cm that have run past the head
+    const off = (s0 / D.tile) % 1;
+    M.tape.map.offset.x = off;
+    M.tape.roughnessMap.offset.x = off;
+    M.tape.normalMap.offset.x = off;
+    M.tape.alphaMap.offset.x = (LEAD + s0) / STRIP;
+  }
+  alignTape();
+
+  /** The packs, re-parameterized from the radius they are holding.
+   *
+      One ring of a pack's top face is one layer of tape — the same `DIM.tTape` the
+      transport unwinds per turn, and the same thickness the ribbon is — so the
+      layer texture is scaled about the disc's centre by however many layers this
+      pack has on it: a full pack shows ninety-odd rings, a nearly empty one shows
+      two, and the pitch is 0.3 mm either way. The wall's u is the circumference
+      counted in `D.tile` tiles, a whole number of them so the seam still wraps.
+      Both are writes into geometry that already exists, both are gated on the
+      radius having moved enough to show (it drifts 3.5e-5 a frame at 60 fps), and
+      a whole-tile jump is invisible because the pattern wraps — which is why the
+      wall's grain can be fixed to the reel and only the ribbon slides. */
+  const lastPack = [-1, -1];
+  function alignPack(i) {
+    const r = i ? st.rR : st.rL;
+    if (Math.abs(r - lastPack[i]) < 2e-3) return;
+    lastPack[i] = r;
+    // the discs are the layers *under* the ribbon, so they are measured from the
+    // pack's body radius, not from the pack's
+    const body = r - D.tTape;
+    const s = (2 * body * TX.EDGE_PITCH) / D.tTape;
+    const src = reels[i].face0;
+    for (const disc of reels[i].faces) {
+      const uv = disc.geometry.attributes.uv;
+      for (let k = 0; k < uv.array.length; k++) uv.array[k] = 0.5 + (src[k] - 0.5) * s;
+      uv.needsUpdate = true;
+    }
+    const wall = reels[i].side.geometry.attributes.uv;
+    const w0 = reels[i].wall0;
+    const tiles = Math.max(2, Math.round((Math.PI * 2 * body) / D.tile));
+    for (let k = 0; k < w0.length; k++) wall.array[k * 2] = w0[k] * tiles;
+    wall.needsUpdate = true;
+  }
+  alignPack(0); alignPack(1);
 
   /* ---------------- analysis anchors ---------------- */
   const anchor = (parent, x, y, z) => {
@@ -731,6 +946,9 @@ export function createCassette(labelOpts = {}) {
     }
     st.rL = radius(st.areaL); st.rR = radius(A_TOTAL - st.areaL);
     st.time = ((A_TOTAL - st.areaL) / A_TOTAL) * st.duration;
+    // the coating slides with the same position the reels are turning by, so the
+    // two can never disagree about which way the tape is going
+    alignTape();
 
     // reels follow whatever moved the tape: ω = v / r,  v = -dA/dt / layer.
     // measured against the *previous frame*, not against the top of this call,
@@ -742,8 +960,12 @@ export function createCassette(labelOpts = {}) {
       reels[0].spin.rotation.y = foldAngle(reels[0].spin.rotation.y + (vTape / Math.max(st.rL, 0.25)) * dt);
       reels[1].spin.rotation.y = foldAngle(reels[1].spin.rotation.y + (vTape / Math.max(st.rR, 0.25)) * dt);
     }
-    reels[0].pack.scale.set(st.rL, 1, st.rL);
-    reels[1].pack.scale.set(st.rR, 1, st.rR);
+    // the pack's *body* is one layer in from the pack's radius: the ribbon is
+    // drawing the outermost layer, and it has to have somewhere to sit
+    const bl = st.rL - D.tTape, br = st.rR - D.tTape;
+    reels[0].pack.scale.set(bl, 1, bl);
+    reels[1].pack.scale.set(br, 1, br);
+    alignPack(0); alignPack(1);
     // the pack radius drifts ~3.5e-5 units per frame at 60 fps — rebuilding the
     // ribbon every frame bought nothing visible, so gate it on 1.5e-3
     if (lastR < 0 || Math.abs(st.rL - lastR) > 1.5e-3 || Math.abs(st.rR - lastR) > 1.5e-3) {

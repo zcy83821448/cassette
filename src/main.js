@@ -507,14 +507,26 @@ function applyQuery(camera = true) {
 }
 
 /* ============================== annotations ============================= */
-/* Every leader runs to the left edge: the right half of the frame belongs to
-   the dossier, and a callout landing on top of the spec table is unreadable. */
+/* Every leader runs to the left edge: the right half of the frame belongs to the
+   dossier, and a callout landing on top of the spec table is unreadable.
+ *
+ *  The order of this list *is* the order of the five rows down the left edge —
+ *  `slot` is handed out as they are built, and the label's height is
+ *  `0.20 + slot * 0.125` of the frame — so it is sorted by where each part has
+ *  been lifted to *when the machine is open*, which is the only pose these appear
+ *  in: the window goes up furthest (+3.05), then the top plate (+2.25), while the
+ *  tape and its reels drop (−1.10) and the screws drop with the bottom plate
+ *  (−2.25). Rows and leaders therefore travel together and stay out of each
+ *  other's way, and the numbers run out of order down the column as a result:
+ *  02 观察窗 over 01 烟灰上壳, 05 轮毂与带盘 over 03 自攻螺钉. Those numbers are
+ *  the dossier's file numbers — they name the part, and stay with it. Only the
+ *  rows move. */
 const ANNOS = [
-  { key: 'shell', side: 'left', n: '01', t: '烟灰上壳', s: 'POLYCARBONATE · 1.1 mm' },
   { key: 'glass', side: 'left', n: '02', t: '观察窗', s: 'PC GLASS · TRANSMISSION 1.0' },
-  { key: 'screw', side: 'left', n: '03', t: '自攻螺钉', s: 'STEEL · M2 × 5 · ×5' },
-  { key: 'tape', side: 'left', n: '04', t: '磁带', s: 'γ-Fe₂O₃ · 3.81 mm' },
+  { key: 'shell', side: 'left', n: '01', t: '烟灰上壳', s: 'POLYCARBONATE · 1.1 mm' },
   { key: 'hub', side: 'left', n: '05', t: '轮毂与带盘', s: 'POM · 6-SPLINE · ⌀12' },
+  { key: 'tape', side: 'left', n: '04', t: '磁带', s: 'γ-Fe₂O₃ · 3.81 mm' },
+  { key: 'screw', side: 'left', n: '03', t: '自攻螺钉', s: 'STEEL · M2 × 5 · ×5' },
 ];
 const ui = document.querySelector('.ui');
 const lines = $('#lines');
@@ -711,10 +723,12 @@ function applyTheme(dt, instant = false) {
   const G = T.grade ?? {};
   grade.uniforms.uGrain.value = to(grade.uniforms.uGrain.value, G.grain ?? 0.05);
   grade.uniforms.uCA.value = to(grade.uniforms.uCA.value, G.ca ?? 0.85);
-  // the vignette is the one grade value a setting owns, so the target is what the
-  // switch decides — the damping above walks it out rather than cutting it, and
-  // it also means every theme keeps its own strength when the switch is on
-  grade.uniforms.uVig.value = to(grade.uniforms.uVig.value, prefs.vig ? (G.vig ?? 0.85) : 0);
+  // the vignette is the one grade value a setting owns: the dial scales whatever
+  // depth the room asks for, so each theme keeps its own (see RIG) and 0 is the
+  // off it used to be a switch for. The damping above walks it rather than
+  // cutting it, which is also what makes the dial feel like it is turning
+  // something rather than setting a number.
+  grade.uniforms.uVig.value = to(grade.uniforms.uVig.value, (G.vig ?? 0.85) * prefs.vig);
   grade.uniforms.uSat.value = to(grade.uniforms.uSat.value, G.sat ?? 1);
   // the lens' own defocus was the one stage no theme could reach: it sat at its
   // default in all three rooms, so 动画 got the same wide-open blur as 暗房.
@@ -1835,10 +1849,18 @@ const toggleIndex = () => (indexOpen ? closeIndex() : openIndex());
    the page boots as it shipped). They are the one thing here that is *supposed*
    to outlive a reload — the music deliberately is not (see 音乐 in the README). */
 const PREF_KEY = 'ohmtape.prefs';
-const prefs = { intro: true, loop: true, hiss: true, keys: true, mirror: true, vig: false };
+/* `vig` is the sheet's one dial rather than a switch: 0 to 1, scaling whatever
+   strength the room itself asks for (see applyTheme). It shipped as a boolean
+   before, so a stored `true` has to come back as the top of the dial — which is
+   the same picture it used to draw — and not as 0. */
+const prefs = { intro: true, loop: true, hiss: true, keys: true, mirror: true, vig: 0 };
 try {
   const saved = JSON.parse(localStorage.getItem(PREF_KEY) || '{}');
-  for (const k of Object.keys(prefs)) if (typeof saved[k] === 'boolean') prefs[k] = saved[k];
+  for (const k of Object.keys(prefs)) {
+    const v = saved[k];
+    if (typeof v === 'boolean') prefs[k] = k === 'vig' ? (v ? 1 : 0) : v;
+    else if (k === 'vig' && typeof v === 'number') prefs[k] = clamp(v, 0, 1);
+  }
 } catch { /* no store: the defaults are the page */ }
 const savePrefs = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch { /* nothing to do */ } };
 
@@ -1848,13 +1870,13 @@ const SETTINGS = [
   { k: 'hiss', cn: '磁带底噪', en: 'TAPE BED', note: '走带时的嘶声与马达嗡声，不含换向声与旋钮声。' },
   { k: 'keys', cn: '按键提示', en: 'KEY LEGEND', note: '底部那行快捷键说明。' },
   { k: 'mirror', cn: '地面镜像', en: 'FLOOR MIRROR', note: '地面实时反射，关掉可省一整遍场景渲染。' },
-  { k: 'vig', cn: '暗角', en: 'VIGNETTE', note: '画面四周压暗，像镜头前的遮光罩。默认关。' },
+  { k: 'vig', cn: '暗角', en: 'VIGNETTE', dial: true, note: '画面四周压暗，像镜头前的遮光罩。滑条调的是强度，三套灯光各留自己的深浅。' },
 ];
 
 /** what a switch does. `intro` is read once by the boot flow and `loop` where the
     tape runs out, so neither has anything to do here — and `vig` needs nothing
-    either: applyTheme() reads the switch every frame, so the vignette walks
-    itself out on the next one. */
+    either: applyTheme() reads it every frame, so the vignette walks itself out
+    on the next one. */
 function applyPref(k) {
   if (k === 'hiss') audio.setLevel(bedLevel());
   else if (k === 'keys') document.body.classList.toggle('keys-off', !prefs.keys);
@@ -1865,8 +1887,21 @@ function applyPrefs() { for (const k of Object.keys(prefs)) applyPref(k); }
 const settingsEl = $('#settings'), setList = $('#set-list'), settingsBtn = $('#btn-settings');
 let setOpen = false;
 
+/* The dial's rail: `--fill` is how much of the hairline is ink, which is the same
+   language the segmented control speaks — ink for what is set. It is a style
+   property rather than a class because it moves continuously. */
+const DIAL_STEPS = 20;                 // one detent per 5%, and one click with it
+function paintDial(s) {
+  const v = prefs[s.k];
+  s.dialEl.value = String(v);
+  s.dialEl.style.setProperty('--fill', (v * 100).toFixed(1) + '%');
+  // 0 is the switch it used to be, and 关 is what this sheet says for off
+  s.valEl.textContent = v > 0 ? Math.round(v * 100) + '%' : '关';
+  s.dialEl.setAttribute('aria-valuetext', s.valEl.textContent);
+}
 function syncSettings() {
   for (const s of SETTINGS) {
+    if (s.dial) { paintDial(s); continue; }
     for (const b of s.seg.children) {
       const on = (b.dataset.v === '1') === prefs[s.k];
       b.classList.toggle('on', on);
@@ -1880,7 +1915,9 @@ function setPref(s, v) {
   savePrefs();
   applyPref(s.k);
   syncSettings();
-  audio.tick();
+  // a switch ticks once per press; the dial ticks per detent, from its own
+  // handler, or a drag would fire a burst of them
+  if (!s.dial) audio.tick();
   document.body.classList.add('moved');
 }
 /* built when the sheet is opened, like the index's cards, and rebuilt each time:
@@ -1892,6 +1929,29 @@ function buildSettings() {
     const t = document.createElement('div');
     t.className = 'set-t';
     t.innerHTML = `<b>${s.cn}</b><i>${s.en}</i><em>${s.note}</em>`;
+    if (s.dial) {
+      const box = document.createElement('div');
+      box.className = 'set-dial';
+      const r = document.createElement('input');
+      r.type = 'range'; r.min = '0'; r.max = '1'; r.step = String(1 / DIAL_STEPS);
+      r.className = 'ui-hit';
+      r.setAttribute('aria-label', `${s.cn}强度`);
+      const out = document.createElement('b');
+      out.className = 'set-val';
+      // the vignette is damped in applyTheme, so the picture follows the thumb
+      // a beat behind it — which is what a knob on a machine does
+      let detent = Math.round(prefs.vig * DIAL_STEPS);
+      r.addEventListener('input', () => {
+        const v = Number(r.value);
+        const k = Math.round(v * DIAL_STEPS);
+        if (k !== detent) { detent = k; audio.tick(); }
+        setPref(s, v);
+      });
+      box.append(r, out);
+      s.dialEl = r; s.valEl = out;
+      li.append(t, box);
+      return li;
+    }
     const seg = document.createElement('div');
     seg.className = 'seg';
     for (const v of [true, false]) {
@@ -2073,6 +2133,9 @@ addEventListener('keydown', (e) => {
     readRecord();
     return;
   }
+  // a focused dial owns its arrows, or the panel would step the vantage out
+  // from under the thumb. Escape above still reaches the sheet.
+  if (e.target?.type === 'range') return;
   if (k === 'ArrowUp') { e.preventDefault(); moveRecord(-1); return; }
   if (k === 'ArrowDown') { e.preventDefault(); moveRecord(1); return; }
   if (k === 'ArrowLeft') { e.preventDefault(); setVantage(vi - 1); return; }
