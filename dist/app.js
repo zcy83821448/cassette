@@ -35281,19 +35281,21 @@ void main() {
   }
   var toggleIndex = () => indexOpen ? closeIndex() : openIndex();
   var PREF_KEY = "ohmtape.prefs";
-  var prefs = { intro: true, loop: true, hiss: true, keys: true, mirror: true, vig: 0 };
+  var PREF_V = 2;
+  var prefs = { intro: true, loop: true, hiss: true, keys: true, mirror: true, vig: 0.5 };
   try {
     const saved = JSON.parse(localStorage.getItem(PREF_KEY) || "{}");
+    const stale = saved.v !== PREF_V;
     for (const k of Object.keys(prefs)) {
-      const v = saved[k];
-      if (typeof v === "boolean") prefs[k] = k === "vig" ? v ? 1 : 0 : v;
-      else if (k === "vig" && typeof v === "number") prefs[k] = clamp2(v, 0, 1);
+      if (stale && k === "vig") continue;
+      if (typeof saved[k] === typeof prefs[k]) prefs[k] = saved[k];
     }
+    prefs.vig = clamp2(prefs.vig, 0, 1);
   } catch {
   }
   var savePrefs = () => {
     try {
-      localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
+      localStorage.setItem(PREF_KEY, JSON.stringify({ v: PREF_V, ...prefs }));
     } catch {
     }
   };

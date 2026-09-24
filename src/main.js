@@ -1849,20 +1849,26 @@ const toggleIndex = () => (indexOpen ? closeIndex() : openIndex());
    the page boots as it shipped). They are the one thing here that is *supposed*
    to outlive a reload — the music deliberately is not (see 音乐 in the README). */
 const PREF_KEY = 'ohmtape.prefs';
-/* `vig` is the sheet's one dial rather than a switch: 0 to 1, scaling whatever
-   strength the room itself asks for (see applyTheme). It shipped as a boolean
-   before, so a stored `true` has to come back as the top of the dial — which is
-   the same picture it used to draw — and not as 0. */
-const prefs = { intro: true, loop: true, hiss: true, keys: true, mirror: true, vig: 0 };
+/* `vig` is the sheet's one dial rather than a switch: 0 to 1 (50% out of the box),
+   scaling whatever strength the room itself asks for (see applyTheme).
+   `v` is the generation those defaults belong to, and it is here because a stored
+   value outranks a new default: the dial shipped at 0, every browser that had ever
+   touched a setting was holding that 0, and changing the default would have been
+   invisible to exactly the people who had used the page. So a `vig` written under
+   an older generation is not read back — once — while every other switch is still
+   whatever the visitor left it at. */
+const PREF_V = 2;
+const prefs = { intro: true, loop: true, hiss: true, keys: true, mirror: true, vig: 0.5 };
 try {
   const saved = JSON.parse(localStorage.getItem(PREF_KEY) || '{}');
+  const stale = saved.v !== PREF_V;
   for (const k of Object.keys(prefs)) {
-    const v = saved[k];
-    if (typeof v === 'boolean') prefs[k] = k === 'vig' ? (v ? 1 : 0) : v;
-    else if (k === 'vig' && typeof v === 'number') prefs[k] = clamp(v, 0, 1);
+    if (stale && k === 'vig') continue;
+    if (typeof saved[k] === typeof prefs[k]) prefs[k] = saved[k];
   }
+  prefs.vig = clamp(prefs.vig, 0, 1);
 } catch { /* no store: the defaults are the page */ }
-const savePrefs = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch { /* nothing to do */ } };
+const savePrefs = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify({ v: PREF_V, ...prefs })); } catch { /* nothing to do */ } };
 
 const SETTINGS = [
   { k: 'intro', cn: '开场动画', en: 'OPENING MOVE', note: '打开时那 3.4 秒的推轨与浮起，下次打开生效。' },
