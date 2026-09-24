@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="studio">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OHM TAPE — 磁带 · Magnetic Tape</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div class="ui">
+  <div class="frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+  <!-- ── masthead: the product, and the lights ─────────────────── -->
+  <header class="mast">
+    <div class="brand">
+      <h1>OHM TAPE</h1>
+      <p class="brand-mid">MAGNETIC TAPE · TYPE II · HIGH BIAS</p>
+      <p class="brand-end" id="brand-code">C—05</p>
+    </div>
+    <nav class="mast-nav">
+      <div class="seg" id="theme">
+        <button class="ui-hit" data-theme="noir">暗房</button>
+        <button class="ui-hit on" data-theme="studio">影棚</button>
+        <button class="ui-hit" data-theme="toon">动画</button>
+      </div>
+      <i class="vr" aria-hidden="true"></i>
+      <button class="tb ui-hit" id="btn-index">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7.1" cy="7.1" r="4.6"/><path d="M10.6 10.6 14 14"/></svg>
+        ARCHIVE INDEX
+      </button>
+      <i class="vr" aria-hidden="true"></i>
+      <button class="tb ui-hit" id="btn-add">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 12.1V4.3l5.1-1.1v7.3"/><ellipse cx="4.3" cy="12.2" rx="1.9" ry="1.6"/><ellipse cx="9.4" cy="11" rx="1.9" ry="1.6"/><path d="M13.2 2.5v3.2M11.6 4.1h3.2"/></svg>
+        ADD MUSIC
+        <span class="vol-read" id="add-read" aria-hidden="true"></span>
+      </button>
+      <i class="vr" aria-hidden="true"></i>
+      <button class="tb ui-hit" id="btn-settings" aria-expanded="false" aria-controls="settings">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.1v2.2M8 12.7v2.2M1.1 8h2.2M12.7 8h2.2M3.1 3.1l1.6 1.6M11.3 11.3l1.6 1.6M12.9 3.1l-1.6 1.6M4.7 11.3l-1.6 1.6"/></svg>
+        SETTINGS
+      </button>
+      <i class="vr" aria-hidden="true"></i>
+      <button class="tb ui-hit" id="btn-reinit">REINITIALIZE</button>
+    </nav>
+  </header>
+
+  <!-- ── the record itself ─────────────────────────────────────── -->
+  <section class="dossier" id="dossier">
+    <p class="crumb">
+      内部档案<i>/</i>INTERNAL DATABASE<i>/</i><span id="col-cn">整机</span>
+      <button class="fold ui-hit" id="btn-fold" aria-expanded="true" aria-controls="dbody">收起详情</button>
+    </p>
+    <div class="dbody" id="dbody">
+      <h2 class="fileno">编号<b id="file-id">00</b><span class="caret" aria-hidden="true"></span></h2>
+      <div class="foldwrap">
+        <div class="dossier-grid">
+          <div class="doc">
+            <p class="doc-cn" id="file-cn">整机</p>
+            <p class="doc-en" id="file-en">MAGNETIC TAPE · TYPE II</p>
+            <p class="doc-note" id="file-note">烟灰聚碳酸酯外壳，γ-Fe₂O₃ 磁层，3.81 mm 带基。在工程与手感之间，一段沉默的机械。</p>
+            <ul class="spec" id="file-spec"></ul>
+          </div>
+          <div class="ref">
+            <p class="ref-h">REFERENCE AREA</p>
+            <ul class="ref-list" id="ref-list"></ul>
+          </div>
+        </div>
+      </div>
+      <button class="access ui-hit" id="btn-access">
+        <span id="access-label">读取整机</span>
+        <svg viewBox="0 0 22 12" aria-hidden="true"><path d="M0 6h19M14.4 1.4 19.4 6l-5 4.6"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ── what is in the shell ──────────────────────────────────── -->
+  <div class="now" id="now">
+    <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    <b id="now-title">—</b>
+    <em id="now-sub">—</em>
+  </div>
+
+  <!-- ── deck ──────────────────────────────────────────────────── -->
+  <footer class="deck">
+    <div class="sel">
+      <p class="micro">ARCHIVE / SELECT</p>
+      <p class="sel-num"><b id="sel-i">00</b><i>/</i><span id="sel-n">05</span></p>
+    </div>
+
+    <div class="pager">
+      <div class="grp">
+        <button class="pk ui-hit" data-act="prev-file" aria-label="上一条档案">↑</button>
+        <i class="rail" aria-hidden="true"></i>
+        <div class="cols" id="cols"></div>
+        <i class="rail" aria-hidden="true"></i>
+        <button class="pk ui-hit" data-act="next-file" aria-label="下一条档案">↓</button>
+      </div>
+      <div class="grp">
+        <button class="pk ui-hit" data-act="prev-col" aria-label="上一个机位">←</button>
+        <p class="col-id">VANTAGE <b id="col-i">01</b><i>/</i><span id="col-n">04</span></p>
+        <p class="col-name"><b id="col-cn-2">等轴机位</b><em id="col-en">ISOMETRIC</em></p>
+        <button class="pk ui-hit" data-act="next-col" aria-label="下一个机位">→</button>
+      </div>
+    </div>
+
+    <div class="deck-right">
+      <div class="transport">
+        <button class="tc-btn ui-hit" id="btn-play" aria-label="走带">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path class="ico-play" d="M4.6 2.5 13.1 8 4.6 13.5Z"/><g class="ico-pause"><path d="M5.4 2.7v10.6M10.6 2.7v10.6"/></g></svg>
+          <b id="play-label">走带</b>
+        </button>
+        <span class="counter"><b id="tc">00:00</b><i>/</i><span id="td">05:17</span></span>
+        <button class="tc-ico ui-hit" id="btn-explode" aria-label="拆解视图" aria-pressed="false" title="拆解视图（E）">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13.2 3.6 8 5.7 2.8 3.6zM8 5.9 13.2 8 8 10.1 2.8 8zM8 10.3 13.2 12.4 8 14.5 2.8 12.4z"/></svg>
+        </button>
+        <button class="tc-ico ui-hit" id="btn-flip" aria-label="翻转机身" aria-pressed="false" title="翻转机身（F）">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.7 13.2V2.9M5.7 2.9 3.5 5.1M5.7 2.9l2.2 2.2M10.3 2.8v10.3M10.3 13.1l2.2-2.2M10.3 13.1l-2.2-2.2"/></svg>
+        </button>
+        <button class="tc-ico ui-hit" id="btn-auto" aria-label="自动巡览" aria-pressed="false" title="自动巡览（A）">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12.72 9.67a5 5 0 1 1-1.18-5.2"/><path d="M14.11 3.56v3.33h-3.33"/></svg>
+        </button>
+        <button class="tc-ico ui-hit" id="btn-mute" aria-label="静音 / 音量（滚轮调节）" aria-pressed="false" title="滚轮调音量 · 点击静音（M）">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.9 6.1h2.4L8.3 3.4v9.2L5.3 9.9H2.9z"/><g class="ico-wave"><path d="M10.7 6.2a2.9 2.9 0 0 1 0 3.6"/><path d="M12.7 4.3a5.5 5.5 0 0 1 0 7.4"/></g><g class="ico-x"><path d="M11 6.2 14.6 9.8"/></g></svg>
+          <span class="vol-read" id="vol-read" aria-hidden="true">30%</span>
+        </button>
+      </div>
+      <i class="vr" aria-hidden="true"></i>
+      <p class="powered">POWERED BY <b>OHM TAPE</b></p>
+    </div>
+  </footer>
+
+  <!-- ── hud ───────────────────────────────────────────────────── -->
+  <div class="hud">
+    <p class="hud-l"><span class="live" aria-hidden="true"></span>SESSION AUTHORIZED</p>
+    <p class="hud-c" id="keys">
+      <b>↑↓</b>档案<i>/</i><b>←→</b>机位<i>/</i><b>ENTER</b>读取<i>/</i><b>SPACE</b>走带<i>/</i><b>E</b>拆解<i>/</i><b>F</b>翻面<i>/</i><b>M</b>静音<i>/</i><b>喇叭滚轮</b>音量<i>/</i><b>A</b>巡览<i>/</i><b>I</b>目录<i>/</i><b>O</b>装带<i>/</i><b>,</b>设置<i>/</i><b>拖拽</b>旋转<i>/</i><b>滚轮</b>推拉<i>/</i><b>双击</b>复位
+    </p>
+    <p class="hud-r">OHM TAPE LAB<i>/</i><span id="clock">00:00:00</span></p>
+  </div>
+
+  <!-- ── the whole index ───────────────────────────────────────── -->
+  <div class="index" id="index" hidden>
+    <div class="index-in">
+      <div class="index-top">
+        <p class="index-h">ARCHIVE INDEX<i>/</i><span>这台磁带的全部档案</span></p>
+        <button class="tb ui-hit" id="index-close">CLOSE ✕</button>
+      </div>
+      <div class="index-cols" id="index-cols"></div>
+    </div>
+  </div>
+
+  <!-- ── settings ──────────────────────────────────────────────── -->
+  <div class="index" id="settings" hidden>
+    <div class="index-in">
+      <div class="index-top">
+        <p class="index-h">SETTINGS<i>/</i><span>这台终端的行为</span></p>
+        <button class="tb ui-hit" id="settings-close">CLOSE ✕</button>
+      </div>
+      <ul class="set-list" id="set-list"></ul>
+    </div>
+  </div>
+
+  <svg class="lines" id="lines" aria-hidden="true"></svg>
+</div>
+
+<audio id="tape-audio" src="assets/sacred-play-secret-place.mp3" preload="auto"></audio>
+<input type="file" id="tape-file" accept="audio/*,.mp3,.m4a,.m4b,.aac,.flac,.wav,.wave,.ogg,.oga,.opus,.webm" hidden>
+
+<div class="loader" id="loader">
+  <div class="loader-box">
+    <div class="loader-mark">OHM<b>TAPE</b></div>
+    <div class="loader-bar"><i id="lbar"></i></div>
+    <div class="loader-lbl"><span id="llbl">正在初始化</span><em id="lpct">0%</em></div>
+  </div>
+</div>
+
+<noscript><p style="color:#111;padding:2rem">需要启用 JavaScript。</p></noscript>
+<script src="dist/app.js"></script>
+</body>
+</html>

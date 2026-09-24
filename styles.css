@@ -1,0 +1,677 @@
+/* ============================================================
+   OHM TAPE — archive terminal
+   ============================================================
+   The page is a records terminal: a masthead, a dossier on the
+   subject, and a deck of index controls along the bottom. It is
+   laid out like a printed archive slip — hairline rules, wide
+   tracked micro-labels, one very large numeral per block — and it
+   is wired to the 3D scene, not decoration over it. Every control
+   here maps to a "file" you can select and read.
+   ============================================================ */
+:root {
+  --sans: "Helvetica Neue", Helvetica, Arial, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  --mono: "Cascadia Mono", "JetBrains Mono", "Consolas", "Microsoft YaHei UI", "PingFang SC", ui-monospace, monospace;
+  --pad: 44px;
+  --ease: cubic-bezier(.19, 1, .22, 1);
+  --ease2: cubic-bezier(.4, 0, .2, 1);
+}
+
+/* the lamps-off variant */
+[data-theme="noir"] {
+  --paper: #0a0b0d;
+  --ink: #efece6;
+  --ink-dim: rgba(239, 236, 230, .70);
+  --ink-faint: rgba(239, 236, 230, .50);
+  --hair: rgba(239, 236, 230, .16);
+  --hair-soft: rgba(239, 236, 230, .08);
+  --accent: #d0783a;
+  --accent-soft: rgba(208, 120, 58, .16);
+  --chip-bg: rgba(239, 236, 230, .94);
+  --chip-ink: #141210;
+  --chip-hair: rgba(0, 0, 0, .14);
+  --shadow: rgba(0, 0, 0, .5);
+}
+[data-theme="studio"], [data-theme="toon"] {
+  --paper: #e7e9ec;
+  --ink: #16181c;
+  --ink-dim: rgba(22, 24, 28, .70);
+  --ink-faint: rgba(22, 24, 28, .56);
+  --hair: rgba(22, 24, 28, .18);
+  --hair-soft: rgba(22, 24, 28, .09);
+  --accent: #9a4f16;
+  --accent-soft: rgba(154, 79, 22, .16);
+  --chip-bg: rgba(22, 24, 28, .92);
+  --chip-ink: #f0f1f3;
+  --chip-hair: rgba(255, 255, 255, .15);
+  --shadow: rgba(40, 44, 52, .2);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background .9s var(--ease), color .9s var(--ease);
+}
+canvas#gl {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+body.dragging canvas#gl { cursor: grabbing; }
+
+.ui { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+.ui > * { pointer-events: none; }
+.ui button, .ui .row { pointer-events: auto; }
+.micro { font-family: var(--mono); }
+
+/* ---------- hairline frame with corner ticks ---------- */
+.frame { position: absolute; inset: 18px; border: 1px solid var(--hair-soft); transition: border-color .9s var(--ease); }
+.frame i { position: absolute; width: 8px; height: 8px; border: 1px solid var(--ink-faint); }
+.frame i:nth-child(1) { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.frame i:nth-child(2) { top: -1px; right: -1px; border-left: 0; border-bottom: 0; }
+.frame i:nth-child(3) { bottom: -1px; left: -1px; border-right: 0; border-top: 0; }
+.frame i:nth-child(4) { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+
+/* ============================ masthead ================================= */
+.mast {
+  position: absolute; top: 40px; left: var(--pad); right: var(--pad);
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 30px;
+}
+.brand { text-transform: uppercase; }
+/* the logotype is three weights stacked: two heavy lines pinning a light one,
+   tight enough that they read as a single block rather than three paragraphs */
+.brand h1 {
+  font-size: clamp(26px, 3.05vw, 50px); font-weight: 700;
+  letter-spacing: -.028em; line-height: .94;
+}
+.brand-mid {
+  font-size: clamp(10px, .8vw, 13.5px); font-weight: 400;
+  letter-spacing: .012em; line-height: 1.2; margin-top: 3px; color: var(--ink-dim);
+}
+.brand-end {
+  font-size: clamp(21px, 2.4vw, 40px); font-weight: 700;
+  letter-spacing: -.02em; line-height: 1; margin-top: 1px;
+}
+.mast-nav { display: flex; align-items: center; gap: 14px; padding-top: 8px; }
+.vr { width: 1px; height: 15px; background: var(--hair); flex: none; }
+.tb {
+  appearance: none; border: 0; background: none; color: var(--ink); cursor: pointer;
+  font: inherit; font-size: 11.5px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase;
+  display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+  transition: color .4s var(--ease), opacity .4s var(--ease);
+}
+.tb svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; }
+.tb:hover { color: var(--accent); }
+/* the gear turns a quarter and swells. Linear on purpose: it is eight-toothed,
+   so nothing about it says "ease" — it says a shaft being engaged, and the page
+   already spins the 巡览 arrow on the same `linear`. It stays turned while the
+   panel is up, so the button reads as open rather than as hovered. */
+#btn-settings svg { transition: transform .55s linear; }
+#btn-settings:hover svg,
+#btn-settings.open svg { transform: rotate(90deg) scale(1.15); }
+#btn-settings.open { color: var(--accent); }
+.tb b { font-family: var(--mono); font-weight: 500; }
+
+/* the lights. Solid ink on the live one — at this size a border tint is not
+   enough to read across a bright room */
+.seg { display: flex; border: 1px solid var(--hair); }
+.seg button {
+  appearance: none; border: 0; background: none; color: var(--ink-dim); cursor: pointer;
+  font: inherit; font-size: 11px; letter-spacing: .14em; padding: 6px 13px; white-space: nowrap;
+  transition: color .4s var(--ease), background .5s var(--ease);
+}
+.seg button + button { border-left: 1px solid var(--hair); }
+.seg button:hover { color: var(--ink); }
+.seg button.on { color: var(--paper); background: var(--ink); }
+
+/* ============================ dossier ================================== */
+/* the subject sits in the left half and the record in the right; the two must
+   not overlap, because every value in this column is dark text and the tape is
+   not a pale enough thing to read it over */
+/* The panel hangs from a line rather than from its own middle. It is centred on
+   `--panel-half` — half its height, measured once and on resize — instead of on
+   itself, because its length changes for reasons that have nothing to do with
+   where it sits: the wheel shortens it, and every record has a different sheet
+   (a spec row more or less, a note a line longer). Centred on itself, the file
+   number and everything above the sheet rose a little every time a shorter
+   record was picked up. Anchored at the top, a longer sheet just grows downward. */
+.dossier {
+  position: absolute; left: 55%; right: var(--pad);
+  top: calc(50% - var(--panel-half, 210px));
+  /* How much of its own length the panel is not using. It rests 20% short, and
+     the loop adds --give on top of that as the wheel brings the lens in (see
+     syncPanelGive in main.js) — a length rather than a position, which is why
+     the crumb and the body both read it, and why folding can still beat it
+     further down. */
+  --retract: calc(20% + var(--give, 0) * 1%);
+}
+.crumb {
+  font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--ink-faint); display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap;   /* retracted hard on a narrow window, this folds to two lines rather than overflowing */
+}
+.crumb i { font-style: normal; opacity: .55; }
+.crumb span { color: var(--ink-dim); }
+/* the fold sits on the crumb line so it costs no vertical space of its own */
+.fold {
+  appearance: none; border: 0; background: none; cursor: pointer; margin-left: auto;
+  font: inherit; font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--ink-faint); padding: 3px 0 3px 12px;
+  transition: color .35s var(--ease);
+}
+.fold::before { content: '▾ '; }
+.dossier.folded .fold::before { content: '▸ '; }
+.fold:hover { color: var(--accent); }
+
+/* The record's own sheet swaps — its name, its note and its specs — so changing
+   record reads as a change rather than as text being overwritten in place. This
+   used to be on the whole body, which took the file number, the breadcrumb and
+   the reference list along with it: the list you had just clicked was pulsing
+   under the pointer, and the number is a cursor being written (see setFileNo in
+   main.js) rather than a block being replaced. Only the part being read swaps. */
+@keyframes dswap { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+.doc.swap { animation: dswap .44s var(--ease) both; }
+@media (prefers-reduced-motion: reduce) { .doc.swap { animation: none; } }
+/* A record's sheet is 4 spec rows or 5, a note one line longer or shorter — the
+   box is held to the height it had and walked to the height it needs on the same
+   clock as that fade, so the growth is one motion rather than the button under it
+   being shoved down in a frame (see swapIn in main.js) */
+.doc.grow { overflow: hidden; transition: height .44s var(--ease); }
+@media (prefers-reduced-motion: reduce) { .doc.grow { transition: none; } }
+
+/* Folding runs in two beats. The body collapses first; then the panel's left
+   edge retracts to the right. Unfolding plays the same two beats backwards.
+
+   The delays live on the *target* state, which is how a CSS transition says
+   "on the way in, wait; on the way out, go now". */
+.foldwrap {
+  max-height: 900px; overflow: hidden;
+  transition: max-height .50s var(--ease) .34s, opacity .38s var(--ease) .34s;
+}
+.dossier.folded .foldwrap {
+  max-height: 0; opacity: 0;
+  transition: max-height .42s var(--ease) 0s, opacity .30s var(--ease) 0s;
+}
+
+/* The retract is one motion, not two. The header rule *is* the panel's left
+   edge, and everything in the panel sits on or behind that edge — so the whole
+   body travels with it. Growing the left margin does both jobs at once: the
+   rule spans a narrower box and so draws itself in, and the text inside that
+   box comes along, staying put against the line's left end.
+
+   It has to be the body, not each element: the number and the read button are
+   inside it, so giving them their own margin would double the offset. */
+.crumb, .dbody {
+  margin-left: var(--retract);
+  transition: margin-left .58s cubic-bezier(.22, 1.25, .36, 1) 0s;
+}
+/* the macro vantage puts the lens in close enough that the tape reaches into
+   this column on its own. That vantage folds the panel outright (the fold is
+   what it wants, and it is declared below so it wins); this is the state the
+   panel falls back into when that fold is undone by hand — narrowed rather than
+   shortened, with the spec table still on screen. */
+.dossier.tight .crumb,
+.dossier.tight .dbody {
+  margin-left: max(34%, var(--retract));
+}
+/* a narrower panel means less room for two columns, so the left one gives up
+   its width rather than squeezing the reference list out of shape. The floor
+   on the second track is what makes the first one actually yield. */
+.dossier.tight .dossier-grid {
+  grid-template-columns: minmax(0, 232px) minmax(140px, 1fr);
+}
+.dossier.folded .crumb,
+.dossier.folded .dbody {
+  margin-left: 60%;   /* folded, the panel keeps 40% of its open length */
+  transition: margin-left .64s cubic-bezier(.22, 1.25, .36, 1) .40s;
+}
+
+.fileno {
+  font-size: clamp(19px, 1.72vw, 30px); font-weight: 700; letter-spacing: -.012em;
+  margin-top: 14px; padding-bottom: 22px; border-bottom: 1px solid var(--hair);
+  display: flex; align-items: baseline; gap: .5em; white-space: nowrap;
+}
+.fileno b { font-weight: 700; font-variant-numeric: tabular-nums; }
+/* The cursor does not blink. It is the pen that writes the file number (see
+   setFileNo), and a pen is either moving or standing on the line — a pen that
+   flickered would read as a decorative cursor instead of the thing doing the
+   work. It is also three times its old width: at 2px it was a cursor, at 6px it
+   is a nib, and it is what the mask's cut hides behind. */
+.caret {
+  display: inline-block; width: 6px; height: .82em; background: var(--ink);
+  transform: translateY(.06em);
+}
+
+/* 264px for the record unless that would eat into the room the reference rows
+   need — this panel is not always as long as it used to be, and the second track
+   is not the one that should pay for it. 184 = the column gap plus the 140 the
+   tight grid below settles on for those rows. */
+.dossier-grid {
+  display: grid;
+  grid-template-columns: minmax(0, min(264px, calc(100% - 184px))) minmax(0, 1fr);
+  gap: 22px 44px; margin-top: 20px;
+}
+.doc-cn { font-size: clamp(14px, 1.12vw, 18px); font-weight: 500; letter-spacing: .06em; }
+.doc-en {
+  font-size: 10.5px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--ink-faint); margin-top: 7px;
+}
+.doc-note {
+  font-size: 12px; line-height: 1.8; color: var(--ink-dim); margin-top: 15px;
+  max-width: 30ch; font-weight: 300;
+}
+/* the spec rows are the actual content of a record — the reason it is filed */
+.spec { list-style: none; margin-top: 18px; border-top: 1px solid var(--hair-soft); }
+.spec li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 6px 0; border-bottom: 1px solid var(--hair-soft);
+  transition: padding-left .45s var(--ease), border-color .4s var(--ease);
+}
+.spec li span { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; color: var(--ink-faint); }
+.spec li b { font-weight: 400; font-family: var(--mono); font-size: 11px; color: var(--ink-dim); letter-spacing: .04em; }
+.spec li:hover { padding-left: 6px; }
+.spec li:hover b { color: var(--ink); }
+.spec li:hover span { color: var(--accent); }
+.access {
+  appearance: none; border: 0; background: none; cursor: pointer; color: var(--ink);
+  display: inline-flex; align-items: center; gap: 14px; margin-top: 20px;
+  font: inherit; font-size: 12px; font-weight: 500; letter-spacing: .18em; text-transform: uppercase;
+  padding: 0; position: relative;
+  transition: color .4s var(--ease);
+}
+.access svg {
+  width: 24px; height: 13px; fill: none; stroke: currentColor;
+  stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round;
+  transition: transform .5s var(--ease);
+}
+.access::after {
+  content: ''; position: absolute; left: 0; bottom: -7px; height: 1px; width: 0;
+  background: currentColor; transition: width .55s var(--ease);
+}
+.access:hover { color: var(--accent); }
+.access:hover svg { transform: translateX(7px); }
+.access:hover::after { width: 100%; }
+.access[disabled] { color: var(--ink-faint); cursor: default; }
+.access[disabled] svg { opacity: .4; }
+.access[disabled]:hover::after { width: 0; }
+.access[disabled]:hover svg { transform: none; }
+
+/* the record already on screen. Its rule stays drawn and the label takes the
+   accent, so "which one am I looking at" is answerable without pressing it. */
+.access.done { color: var(--accent); }
+.access.done::after { width: 100%; }
+
+/* the other files in this column — the reference area is the pick list */
+.ref { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.ref-h {
+  font-size: 10.5px; letter-spacing: .22em; text-transform: uppercase;
+  color: var(--ink-faint); padding-bottom: 12px; width: 100%;
+  border-bottom: 1px solid var(--hair-soft); text-align: right;
+}
+.ref-list { list-style: none; margin-top: 12px; display: flex; flex-direction: column; gap: 2px; align-items: flex-end; width: 100%; }
+.row {
+  appearance: none; border: 0; background: none; cursor: pointer; color: var(--ink-dim);
+  font: inherit; display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+  width: 100%; padding: 5px 8px 5px 0; position: relative; text-align: right;
+  transition: color .35s var(--ease), padding-right .45s var(--ease);
+}
+.row .rn { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; color: var(--ink-faint); order: 3; }
+/* the name is the one part of a reference row that can give: without this it
+   keeps its min-content width, and a short track makes it paint leftward over
+   the spec table instead of taking a second line */
+.row .rt { font-size: 12.5px; letter-spacing: .04em; order: 2; min-width: 0; }
+.row .rd {
+  order: 1; width: 5px; height: 5px; flex: none; border: 1px solid var(--ink-faint);
+  transition: background .35s var(--ease), border-color .35s var(--ease);
+}
+.row:hover { color: var(--ink); padding-right: 14px; }
+.row:hover .rn { color: var(--ink-dim); }
+.row.sel { color: var(--ink); padding-right: 14px; }
+.row.sel .rd { border-color: var(--ink); border-radius: 50%; background: var(--ink); }
+.row.done .rd { background: var(--accent); border-color: var(--accent); }
+.row.sel.done .rd { background: var(--accent); box-shadow: 0 0 0 1px var(--paper), 0 0 0 2px var(--accent); }
+
+/* ============================ now playing ============================== */
+.now {
+  position: absolute; left: var(--pad); bottom: 156px;
+  display: inline-flex; align-items: center; gap: 12px;
+  padding: 9px 16px 10px; border-radius: 5px;
+  background: var(--chip-bg); color: var(--chip-ink);
+  box-shadow: 0 14px 34px -20px var(--shadow);
+  max-width: min(46ch, 40vw); transition: background .9s var(--ease), color .9s var(--ease), opacity .8s var(--ease);
+}
+.now b { font-size: 12px; font-weight: 500; letter-spacing: .05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now em {
+  font-style: normal; font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em;
+  opacity: .55; white-space: nowrap; padding-left: 12px; border-left: 1px solid var(--chip-hair);
+}
+.eq { display: flex; align-items: flex-end; gap: 2px; height: 11px; }
+.eq i { width: 1px; height: 3px; background: currentColor; opacity: .45; transition: opacity .5s var(--ease); }
+body.playing .eq i { opacity: 1; animation: eq .9s ease-in-out infinite; }
+body.playing .eq i:nth-child(2) { animation-delay: .18s; }
+body.playing .eq i:nth-child(3) { animation-delay: .36s; }
+body.playing .eq i:nth-child(4) { animation-delay: .54s; }
+@keyframes eq { 0%, 100% { height: 3px; } 50% { height: 11px; } }
+body.rewinding .now b { opacity: .45; }
+body.rewinding .counter b { color: var(--accent); }
+body.rewinding .eq i { animation: none; height: 3px; }
+
+/* ============================ deck ==================================== */
+.deck {
+  position: absolute; left: var(--pad); right: var(--pad); bottom: 54px;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 20px;
+}
+.sel-num { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
+.sel-num b { font-size: clamp(30px, 3.7vw, 56px); font-weight: 300; letter-spacing: .01em; line-height: .9; font-variant-numeric: tabular-nums; }
+.sel-num i, .sel-num span { font-size: 15px; font-style: normal; color: var(--ink-faint); font-weight: 300; }
+
+.pager {
+  position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 44px;
+}
+.pager .grp { display: flex; align-items: center; gap: 12px; }
+.rail { width: 1px; height: 22px; background: var(--hair); flex: none; }
+.pk {
+  appearance: none; border: 0; background: none; cursor: pointer; color: var(--ink);
+  font: inherit; font-size: 19px; font-weight: 300; line-height: 1;
+  padding: 4px 5px; transition: transform .45s var(--ease), color .4s var(--ease), opacity .4s var(--ease);
+}
+.pk:hover { color: var(--accent); }
+.pk[data-act="prev-file"]:hover, .pk[data-act="prev-col"]:hover { transform: translateX(-3px); }
+.pk[data-act="next-file"]:hover, .pk[data-act="next-col"]:hover { transform: translateX(3px); }
+.pk.flash { color: var(--accent); }
+.cols { display: flex; align-items: center; gap: 3px; }
+.tick {
+  position: relative; width: 9px; height: 24px; border: 0; background: none; padding: 0; cursor: pointer;
+}
+.tick::before {
+  content: ''; position: absolute; left: 50%; top: 50%; width: 1px; height: 9px;
+  background: var(--ink-faint); transform: translate(-50%, -50%);
+  transition: height .45s var(--ease), width .45s var(--ease), background .4s var(--ease);
+}
+.tick.on::before { width: 2px; height: 17px; background: var(--ink); }
+.tick:hover::before { background: var(--ink-dim); }
+.tick.done::before { background: var(--accent); }
+.col-id {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--ink-faint); white-space: nowrap;
+}
+.col-id b { color: var(--ink-dim); font-weight: 500; }
+.col-id i { font-style: normal; }
+.col-name { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; margin-left: 6px; }
+.col-name b { font-size: 12.5px; font-weight: 500; letter-spacing: .04em; }
+.col-name em {
+  font-style: normal; font-family: var(--mono); font-size: 10px;
+  letter-spacing: .18em; text-transform: uppercase; color: var(--ink-faint);
+}
+
+.deck-right { display: flex; align-items: center; gap: 16px; }
+.transport {
+  display: flex; align-items: center; gap: 12px;
+  border: 1px solid var(--hair-soft); padding: 6px 10px 6px 6px;
+}
+.tc-btn {
+  appearance: none; border: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 14px; color: var(--chip-ink); background: var(--chip-bg);
+  font: inherit; font-size: 10.5px; font-weight: 500; letter-spacing: .18em; text-transform: uppercase;
+  transition: transform .5s var(--ease), filter .4s var(--ease), background .9s var(--ease);
+}
+.tc-btn:hover { filter: brightness(1.18); }
+.tc-btn:active { transform: scale(.985); }
+.tc-btn svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
+.tc-btn .ico-play { fill: currentColor; stroke: none; }
+.tc-btn .ico-pause { display: none; }
+body.playing .tc-btn .ico-play { display: none; }
+body.playing .tc-btn .ico-pause { display: block; }
+.counter { display: flex; align-items: baseline; gap: 5px; font-family: var(--mono); }
+.counter b { font-size: 14px; font-weight: 400; letter-spacing: .05em; font-variant-numeric: tabular-nums; }
+.counter i, .counter span { font-size: 11px; font-style: normal; color: var(--ink-faint); }
+.tc-ico {
+  appearance: none; display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
+  border: 1px solid var(--hair); border-radius: 50%; background: transparent; color: var(--ink-dim);
+  cursor: pointer; transition: color .4s var(--ease), border-color .4s var(--ease), background .4s var(--ease);
+  position: relative;
+}
+.tc-ico:hover { color: var(--ink); border-color: var(--ink-faint); }
+.tc-ico svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round; }
+.tc-ico.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+/* spin the whole svg, not the arc path: the arc's own bbox centre is off the
+   circle's centre, so rotating it orbits instead of turning in place */
+#btn-auto.on svg { animation: spin 6.5s linear infinite; transform-origin: 50% 50%; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { #btn-auto.on svg { animation: none; } }
+.tc-ico .ico-x { display: none; }
+body.muted #btn-mute .ico-wave { display: none; }
+body.muted #btn-mute .ico-x { display: block; }
+/* only the speaker greys out. `body.muted .tc-ico` was more specific than
+   `.tc-ico.on`, so muting also drained the accent out of the 拆解 / 翻面 /
+   巡览 icons while they were switched on. */
+body.muted #btn-mute { color: var(--ink-faint); }
+
+/* ---- volume readout -------------------------------------------------------
+   The speaker is a knob as well as a switch: the wheel over it sets the level,
+   and this is the only place the number is shown. It sits above the icon, fades
+   in on the first notch and fades out a moment after the last one, so nothing
+   permanent is added to the console for a control that is used occasionally. */
+.vol-read {
+  position: absolute; left: 50%; bottom: calc(100% + 7px); transform: translate(-50%, 4px);
+  padding: 3px 6px; border: 1px solid var(--hair-soft);
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  font-family: var(--mono); font-size: 10px; letter-spacing: .08em; color: var(--ink);
+  white-space: nowrap; pointer-events: none; font-variant-numeric: tabular-nums;
+  opacity: 0; transition: opacity .22s var(--ease), transform .22s var(--ease);
+}
+#btn-mute.show-vol .vol-read { opacity: 1; transform: translate(-50%, 0); }
+/* the same readout, hung off the one button in the masthead that has something
+   to say back — what it is loading, or why it will not */
+#btn-add { position: relative; }
+#btn-add.show-vol .vol-read { opacity: 1; transform: translate(-50%, 0); }
+/* the icon carries the level too: one arc below half, two above, so the state
+   reads without the number */
+#btn-mute.vol-lo .ico-wave path:last-child { display: none; }
+.powered { font-size: 11.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-dim); white-space: nowrap; }
+.powered b { font-weight: 700; color: var(--ink); letter-spacing: -.005em; }
+
+/* ============================ hud ===================================== */
+.hud {
+  position: absolute; left: var(--pad); right: var(--pad); bottom: 18px;
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-faint);
+}
+.hud-l { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.live { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: pulse 3.6s var(--ease2) infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.72); } }
+body.playing .live { animation-duration: 1.6s; }
+.hud-c { display: inline-flex; align-items: center; gap: 9px; flex-wrap: wrap; justify-content: center; transition: opacity .9s var(--ease); }
+.hud-c b { font-family: var(--mono); font-weight: 500; color: var(--ink-dim); letter-spacing: .1em; }
+.hud-c i { font-style: normal; opacity: .4; }
+body.moved .hud-c { opacity: .42; }
+.hud-r { white-space: nowrap; font-family: var(--mono); }
+.hud-r i { font-style: normal; opacity: .5; margin: 0 6px; }
+
+/* ============================ index overlay ============================ */
+.index {
+  position: absolute; inset: 0; background: color-mix(in srgb, var(--paper) 95%, transparent);
+  backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
+  display: grid; place-items: center; pointer-events: auto;
+  opacity: 0; visibility: hidden; transition: opacity .55s var(--ease), visibility .55s;
+}
+.index[hidden] { display: none; }
+.index.open { opacity: 1; visibility: visible; }
+.index-in { width: min(1180px, calc(100vw - 88px)); max-height: 78vh; overflow: auto; padding: 4px 0; }
+/* the settings sheet is the same overlay with five rows in it, so it gets its
+   own measure rather than a card rack's */
+#settings .index-in { width: min(620px, calc(100vw - 88px)); }
+/* rows: the name over its English slug and one line of what it does, with the
+   switch at the right — the theme switcher's segmented control, on its own row */
+.set-list { list-style: none; margin: 4px 0 0; }
+.set-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  padding: 15px 0; border-bottom: 1px solid var(--hair-soft);
+}
+.set-t { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.set-t b { font-size: 13px; font-weight: 500; letter-spacing: .06em; color: var(--ink); }
+.set-t i {
+  font-style: normal; font-family: var(--mono); font-size: 9.5px;
+  letter-spacing: .18em; text-transform: uppercase; color: var(--ink-faint);
+}
+.set-t em { font-style: normal; font-size: 11.5px; line-height: 1.5; color: var(--ink-dim); }
+.set-row .seg { flex: none; }
+/* the key legend has no switch of its own in the deck: it is a setting */
+body.keys-off .hud-c { display: none; }
+.index-top { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 1px solid var(--hair); padding-bottom: 14px; }
+.index-h { font-size: 11px; letter-spacing: .24em; text-transform: uppercase; display: flex; gap: 10px; align-items: center; }
+.index-h i { font-style: normal; color: var(--ink-faint); }
+.index-h span { color: var(--ink-faint); }
+.index-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 42px; margin-top: 26px; }
+.icol { display: flex; flex-direction: column; }
+/* the header of a card is the control: the whole record is one clickable
+   block, and the specs underneath are what it is filed under */
+.icol-h {
+  appearance: none; border: 0; background: none; cursor: pointer; font: inherit; text-align: left;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 0 0 9px; border-bottom: 1px solid var(--hair); color: var(--ink);
+  transition: color .4s var(--ease), padding-left .45s var(--ease);
+}
+.icol-h span { font-size: 12.5px; letter-spacing: .05em; }
+.icol-h em {
+  font-style: normal; font-family: var(--mono); font-size: 10px; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ink-faint); transition: color .4s var(--ease);
+}
+.icol-h:hover { color: var(--accent); padding-left: 6px; }
+.icol-h:hover em { color: var(--accent); }
+.icol.on .icol-h { color: var(--accent); }
+.icol.on .icol-h em { color: var(--accent); }
+.icol .spec { margin-top: 4px; border-top: 0; }
+
+/* ---------- exploded annotations ---------- */
+.lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; transition: opacity .6s var(--ease); }
+.lines line { stroke: var(--ink-faint); stroke-width: 1; stroke-dasharray: 2 3; }
+.lines circle { fill: none; stroke: var(--accent); stroke-width: 1; }
+/* opacity only — x1/y1/cx/cy are CSS properties in SVG2, so `all` would animate
+   the leaders crawling to their anchors instead of just fading */
+.lines line, .lines circle { transition: opacity .6s var(--ease); }
+.anno {
+  position: absolute; opacity: 0; visibility: hidden;
+  transition: opacity .6s var(--ease), visibility .6s;
+  white-space: nowrap; pointer-events: none;
+}
+.anno b { display: block; font-size: 12px; font-weight: 400; letter-spacing: .14em; }
+.anno i { font-style: normal; font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--ink-faint); }
+.anno u { position: absolute; text-decoration: none; font-family: var(--mono); font-size: 10px; color: var(--accent); letter-spacing: .1em; }
+.anno[data-side="right"] { text-align: right; }
+.anno[data-side="right"] u { right: 0; top: -16px; }
+.anno[data-side="left"] { text-align: left; }
+.anno[data-side="left"] u { left: 0; top: -16px; }
+body.exploded .anno { opacity: 1; visibility: visible; }
+/* while one part is being read, its leader line is the only one drawn */
+body.exploded .anno.mute { opacity: 0; visibility: hidden; }
+
+/* ---------- loader ---------- */
+.loader {
+  position: fixed; inset: 0; z-index: 20; background: var(--paper);
+  display: grid; place-items: center;
+  transition: opacity .9s var(--ease), visibility .9s, background .9s var(--ease);
+}
+body.ready .loader { opacity: 0; visibility: hidden; }
+.loader-mark { font-size: 12px; letter-spacing: .5em; color: var(--ink-faint); margin-bottom: 22px; text-align: center; }
+.loader-mark b { font-weight: 700; color: var(--ink); }
+.loader-bar { width: 220px; height: 1px; background: var(--hair); margin: 0 auto; overflow: hidden; }
+.loader-bar i { display: block; height: 100%; width: 0%; background: var(--accent); transition: width .4s var(--ease); }
+.loader-lbl {
+  display: flex; justify-content: space-between; width: 220px; margin: 12px auto 0;
+  font-family: var(--mono); font-size: 10px; letter-spacing: .18em; color: var(--ink-faint);
+}
+
+/* ---------- reveal ---------- */
+.mast, .dossier, .deck, .hud, .now { opacity: 0; transform: translateY(14px); }
+.dossier { transform: translateY(14px); }
+body.ready .mast, body.ready .deck, body.ready .hud, body.ready .now { opacity: 1; transform: translateY(0); }
+body.ready .dossier { opacity: 1; transform: none; }
+.mast { transition: opacity 1.1s var(--ease) .1s, transform 1.1s var(--ease) .1s; }
+.dossier { transition: opacity 1.2s var(--ease) .24s, transform 1.2s var(--ease) .24s, left .7s var(--ease); }
+.now { transition: opacity .9s var(--ease) .5s, transform .9s var(--ease) .5s, background .9s var(--ease), color .9s var(--ease); }
+.deck { transition: opacity 1s var(--ease) .58s, transform 1s var(--ease) .58s; }
+.hud { transition: opacity 1s var(--ease) .72s, transform 1s var(--ease) .72s; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1240px) {
+  :root { --pad: 30px; }
+  .dossier { left: 50%; }
+  .col-name { display: none; }
+  .pager { gap: 26px; }
+}
+@media (max-width: 900px) {
+  :root { --pad: 24px; }
+  .frame { inset: 11px; }
+  .mast { top: 26px; flex-direction: column; gap: 14px; }
+  .mast-nav { padding-top: 0; flex-wrap: wrap; }
+  .dossier { left: var(--pad); right: var(--pad); top: auto; bottom: 168px; transform: none; }
+  body.ready .dossier { transform: none; }
+  .doc-note, .hud-c, .powered, .vr { display: none; }
+  .dossier-grid { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .ref { align-items: flex-start; text-align: left; }
+  .ref-h { text-align: left; }
+  .ref-list { align-items: stretch; }
+  .row { justify-content: flex-start; text-align: left; padding-right: 0; padding-left: 0; }
+  .row .rn { order: 1; } .row .rt { order: 2; } .row .rd { order: 3; margin-left: auto; }
+  .row:hover, .row.sel { padding-right: 0; padding-left: 8px; }
+  .now { bottom: 116px; max-width: calc(100vw - var(--pad) * 2); }
+  .deck { bottom: 44px; flex-direction: column; align-items: flex-start; gap: 16px; }
+  .pager { position: static; transform: none; gap: 20px; }
+  .deck-right { width: 100%; justify-content: space-between; }
+  .sel-num b { font-size: 34px; }
+}
+@media (max-width: 560px) {
+  .brand-mid, .doc-note { display: none; }
+  .counter span, .counter i { display: none; }
+  .col-id { display: none; }
+  .hud { font-size: 10px; }
+  .hud-r { display: none; }
+}
+
+/* ---------- the panel measured against itself ----------
+   Deep in the zoom the body is a third of its usual width and two columns
+   cannot be had in it: the left track is squeezed to nothing and the spec
+   values end up painted over the reference list. So the grid drops to one
+   column down there, and the reference area gives way first — it is the same
+   six records the deck's ticks and the archive index already carry, and at
+   that reading distance the tape is the thing on screen.
+
+   The body is what the margin narrows, so the body is what has to be the query
+   container; a viewport query cannot see this, because on a wide window the
+   panel is narrow and the window is not. */
+.dbody { container-type: inline-size; }
+@container (max-width: 330px) {
+  /* both selectors: `.tight` states its own columns, and a container query adds
+     no weight to the selectors inside it */
+  .dossier-grid, .dossier.tight .dossier-grid { grid-template-columns: minmax(0, 1fr); }
+  .ref { display: none; }
+}
+
+/* ============================ reduced motion ============================
+   The JS half of this lives in main.js (`reduce`): no intro, no idle drift, no
+   camera travel, no material cross-fades. These are the same decisions on the
+   CSS side. The panel's two-beat fold, the archive overlay and the on-load
+   reveal are all layout motion, so they become cuts — the two keyframe
+   animations that are already switched off further up stay off.
+
+   Durations are overridden as longhands because the rules being overridden set
+   the `transition` shorthand, delays included; leaving a delay in place would
+   keep the two beats sequential, which is the thing being removed. */
+@media (prefers-reduced-motion: reduce) {
+  .foldwrap, .crumb, .dbody, .index, .loader,
+  .mast, .dossier, .deck, .hud, .now,
+  .row, .tick, .pk, .tb, .fold, .crumbs,
+  #btn-settings svg {                     /* the gear lands turned rather than turning */
+    transition-duration: .01s !important;
+    transition-delay: 0s !important;
+  }
+}
