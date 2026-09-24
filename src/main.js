@@ -711,7 +711,10 @@ function applyTheme(dt, instant = false) {
   const G = T.grade ?? {};
   grade.uniforms.uGrain.value = to(grade.uniforms.uGrain.value, G.grain ?? 0.05);
   grade.uniforms.uCA.value = to(grade.uniforms.uCA.value, G.ca ?? 0.85);
-  grade.uniforms.uVig.value = to(grade.uniforms.uVig.value, G.vig ?? 0.85);
+  // the vignette is the one grade value a setting owns, so the target is what the
+  // switch decides — the damping above walks it out rather than cutting it, and
+  // it also means every theme keeps its own strength when the switch is on
+  grade.uniforms.uVig.value = to(grade.uniforms.uVig.value, prefs.vig ? (G.vig ?? 0.85) : 0);
   grade.uniforms.uSat.value = to(grade.uniforms.uSat.value, G.sat ?? 1);
   // the lens' own defocus was the one stage no theme could reach: it sat at its
   // default in all three rooms, so 动画 got the same wide-open blur as 暗房.
@@ -1832,7 +1835,7 @@ const toggleIndex = () => (indexOpen ? closeIndex() : openIndex());
    the page boots as it shipped). They are the one thing here that is *supposed*
    to outlive a reload — the music deliberately is not (see 音乐 in the README). */
 const PREF_KEY = 'ohmtape.prefs';
-const prefs = { intro: true, loop: true, hiss: true, keys: true, mirror: true };
+const prefs = { intro: true, loop: true, hiss: true, keys: true, mirror: true, vig: false };
 try {
   const saved = JSON.parse(localStorage.getItem(PREF_KEY) || '{}');
   for (const k of Object.keys(prefs)) if (typeof saved[k] === 'boolean') prefs[k] = saved[k];
@@ -1845,10 +1848,13 @@ const SETTINGS = [
   { k: 'hiss', cn: '磁带底噪', en: 'TAPE BED', note: '走带时的嘶声与马达嗡声，不含换向声与旋钮声。' },
   { k: 'keys', cn: '按键提示', en: 'KEY LEGEND', note: '底部那行快捷键说明。' },
   { k: 'mirror', cn: '地面镜像', en: 'FLOOR MIRROR', note: '地面实时反射，关掉可省一整遍场景渲染。' },
+  { k: 'vig', cn: '暗角', en: 'VIGNETTE', note: '画面四周压暗，像镜头前的遮光罩。默认关。' },
 ];
 
 /** what a switch does. `intro` is read once by the boot flow and `loop` where the
-    tape runs out, so neither has anything to do here. */
+    tape runs out, so neither has anything to do here — and `vig` needs nothing
+    either: applyTheme() reads the switch every frame, so the vignette walks
+    itself out on the next one. */
 function applyPref(k) {
   if (k === 'hiss') audio.setLevel(bedLevel());
   else if (k === 'keys') document.body.classList.toggle('keys-off', !prefs.keys);

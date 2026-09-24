@@ -31588,11 +31588,21 @@ void main() {
     }
     vec3 refl = acc / wsum;
 
+    // Where the sample lands outside the mirror render there is no reflection to
+    // be had \u2014 nothing was drawn there. Clamping it to the edge is what makes a
+    // streak out of it, so those last pixels are given up instead: the reflection
+    // fades out over the outermost 1.4% of the frame and the floor's own colour
+    // shows through, which is what the surface under a reflection looks like
+    // anyway. (The mirror's frustum is matched to the camera's exactly, so this
+    // only ever catches the frame's own edge.)
+    vec2 edge = smoothstep(vec2(0.0), vec2(0.014), uv)
+              * smoothstep(vec2(0.0), vec2(0.014), 1.0 - uv);
+
     float d = length(vWorld.xz);
     float fade = 1.0 - smoothstep(uInner, uOuter, d);
     vec3 V = normalize(cameraPosition - vWorld);
     float fres = pow(1.0 - clamp(V.y, 0.0, 1.0), 4.0);       // more mirror at grazing angles
-    float k = clamp(uMix * fade * mix(0.5, 1.0, fres), 0.0, 1.0);
+    float k = clamp(uMix * fade * mix(0.5, 1.0, fres), 0.0, 1.0) * edge.x * edge.y;
     gl_FragColor = vec4(mix(color, refl, k), uOpacity * fade);
   }
 `
@@ -31695,7 +31705,23 @@ void main() {
       virtual.near = camera2.near;
       virtual.far = camera2.far;
       virtual.updateMatrixWorld();
-      virtual.projectionMatrix.copy(camera2.projectionMatrix);
+      if (camera2.view?.enabled) {
+        const w = camera2.view;
+        virtual.fov = camera2.fov;
+        virtual.zoom = camera2.zoom;
+        virtual.filmGauge = camera2.filmGauge;
+        virtual.filmOffset = camera2.filmOffset;
+        virtual.setViewOffset(
+          w.fullWidth,
+          w.fullHeight,
+          w.offsetX,
+          w.fullHeight - w.offsetY - w.height,
+          w.width,
+          w.height
+        );
+      } else {
+        virtual.projectionMatrix.copy(camera2.projectionMatrix);
+      }
       virtual.matrixWorldInverse.copy(virtual.matrixWorld).invert();
       reflectMatrix.copy(bias).multiply(virtual.projectionMatrix).multiply(virtual.matrixWorldInverse).multiply(mesh2.matrixWorld);
       uniforms.textureMatrix.value.copy(reflectMatrix);
@@ -34314,7 +34340,7 @@ void main() {
     const G = T.grade ?? {};
     grade.uniforms.uGrain.value = to(grade.uniforms.uGrain.value, G.grain ?? 0.05);
     grade.uniforms.uCA.value = to(grade.uniforms.uCA.value, G.ca ?? 0.85);
-    grade.uniforms.uVig.value = to(grade.uniforms.uVig.value, G.vig ?? 0.85);
+    grade.uniforms.uVig.value = to(grade.uniforms.uVig.value, prefs.vig ? G.vig ?? 0.85 : 0);
     grade.uniforms.uSat.value = to(grade.uniforms.uSat.value, G.sat ?? 1);
     grade.uniforms.uEdge.value = to(grade.uniforms.uEdge.value, G.edge ?? 1);
     grade.uniforms.uFocus.value = to(grade.uniforms.uFocus.value, G.focus ?? 0.26);
@@ -35137,7 +35163,7 @@ void main() {
   }
   var toggleIndex = () => indexOpen ? closeIndex() : openIndex();
   var PREF_KEY = "ohmtape.prefs";
-  var prefs = { intro: true, loop: true, hiss: true, keys: true, mirror: true };
+  var prefs = { intro: true, loop: true, hiss: true, keys: true, mirror: true, vig: false };
   try {
     const saved = JSON.parse(localStorage.getItem(PREF_KEY) || "{}");
     for (const k of Object.keys(prefs)) if (typeof saved[k] === "boolean") prefs[k] = saved[k];
@@ -35154,7 +35180,8 @@ void main() {
     { k: "loop", cn: "\u5FAA\u73AF\u64AD\u653E", en: "AUTO REVERSE", note: "\u653E\u5B8C\u81EA\u52A8\u5012\u5E26\u91CD\u653E\uFF1B\u5173\u6389\u5219\u5012\u56DE\u5F00\u5934\u505C\u4F4F\u3002" },
     { k: "hiss", cn: "\u78C1\u5E26\u5E95\u566A", en: "TAPE BED", note: "\u8D70\u5E26\u65F6\u7684\u5636\u58F0\u4E0E\u9A6C\u8FBE\u55E1\u58F0\uFF0C\u4E0D\u542B\u6362\u5411\u58F0\u4E0E\u65CB\u94AE\u58F0\u3002" },
     { k: "keys", cn: "\u6309\u952E\u63D0\u793A", en: "KEY LEGEND", note: "\u5E95\u90E8\u90A3\u884C\u5FEB\u6377\u952E\u8BF4\u660E\u3002" },
-    { k: "mirror", cn: "\u5730\u9762\u955C\u50CF", en: "FLOOR MIRROR", note: "\u5730\u9762\u5B9E\u65F6\u53CD\u5C04\uFF0C\u5173\u6389\u53EF\u7701\u4E00\u6574\u904D\u573A\u666F\u6E32\u67D3\u3002" }
+    { k: "mirror", cn: "\u5730\u9762\u955C\u50CF", en: "FLOOR MIRROR", note: "\u5730\u9762\u5B9E\u65F6\u53CD\u5C04\uFF0C\u5173\u6389\u53EF\u7701\u4E00\u6574\u904D\u573A\u666F\u6E32\u67D3\u3002" },
+    { k: "vig", cn: "\u6697\u89D2", en: "VIGNETTE", note: "\u753B\u9762\u56DB\u5468\u538B\u6697\uFF0C\u50CF\u955C\u5934\u524D\u7684\u906E\u5149\u7F69\u3002\u9ED8\u8BA4\u5173\u3002" }
   ];
   function applyPref(k) {
     if (k === "hiss") audio.setLevel(bedLevel());
