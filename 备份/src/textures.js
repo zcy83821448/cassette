@@ -1236,21 +1236,14 @@ export function tapeEdgeTexture(size = 1024, bore = 0) {
   /* `bore` is the part of this disc the hub stands on, as a share of its radius
      — and it is a *constant*, because the caller scales the whole disc so that
      one layer is one ring: everything inside the hub's radius is always the same
-     length of tape, hence always this same fraction of the texture. The tape
-     winds around the hub rather than through it, so there is no layer to draw in
-     there.
-
-     And it is erased rather than painted. It used to be filled with the dark of
-     the shell — which is what is behind the hole — but a flat disc of it sitting
-     2.5 mm down the bore does not read as depth, it reads as a cap: the hub came
-     out solid with a black middle. Erasing it and letting the pack faces discard
-     the erased alpha (see `alphaTest` on M.packFace) opens the bore instead, and
-     what is down there is the hub's own barrel and the opening in the shell,
-     which is what a real cassette shows. */
+     length of tape, hence always this same fraction of the texture. Nothing is
+     drawn in there. The tape winds around the hub, not through it, so the only
+     thing behind the spindle hole is the dark inside of the shell — and before
+     this, the layers ran all the way to the centre, which is exactly what you
+     saw looking into it. */
   const R0 = R * bore;
-  g.globalCompositeOperation = 'destination-out';
+  g.fillStyle = '#0c0e10';                       // the shell's own interior
   g.beginPath(); g.arc(R, R, R0, 0, Math.PI * 2); g.fill();
-  g.globalCompositeOperation = 'source-over';
   /* One ring is one layer of tape, so they run from the hub out — the pitch in
      here is only ever a relative one (the caller scales it), but a ring's
      *colour* has to be the tape's cut edge, because that is the surface these are
@@ -1345,92 +1338,28 @@ export function backdropTexture({ stops, spot = null, size = 2048 }) {
   const lg = g.createLinearGradient(0, 0, 0, h);
   for (const [p, col] of stops) lg.addColorStop(p, col);
   g.fillStyle = lg; g.fillRect(0, 0, size, h);
-  if (spot) pool(g, size, h, spot);
-  return tex(soften(c, size, h, Math.round(size / 96)), { srgb: true });
-}
-
-/* The pool of light, painted so that it dies before the sphere's poles.
-
-   An equirectangular row is a circle of latitude, and the rows either side of a
-   pole are circles of almost no radius: whatever a row holds across its width is
-   squeezed into that point. A radial pool has plenty to squeeze — bright at its
-   own u, dark at the edges — so at the poles it pinched into a visible smudge,
-   and because the pool is wider than the canvas is tall it was still at forty
-   percent of its strength on the very top and bottom rows, which is exactly where
-   the squeeze is worst. That is the end of the gradient you can see under the
-   subject.
-
-   So it is painted into a layer of its own and masked off before the poles: the
-   glow reaches zero while its latitude still has a circle worth speaking of. The
-   gradient underneath is not touched by any of this — it is uniform in u, so it
-   has nothing to squeeze and no pole to pinch, and keeping it that way is the
-   point. The pool keeps its centre and its brightness where the lens actually
-   looks; it only gives up the two ends nobody lit anyway. */
-const POLE_TAPER = [
-  [0, 0], [0.07, 0.12], [0.15, 0.5], [0.26, 1],
-  [0.74, 1], [0.85, 0.5], [0.93, 0.12], [1, 0],
-];
-
-function pool(g, size, h, spot) {
-  const layer = canvas(size, h), pl = layer.getContext('2d');
-  const cy = spot.v * h, r = spot.r * size;
-  const mid = spot.color.replace(/[\d.]+\)$/, '0.42)');
-  pl.globalCompositeOperation = 'lighter';
-  /* the sphere wraps horizontally, so a pool this far round (u ≈ 0.85) runs off
-     the right edge of the canvas. Painted once it would be sliced there, and the
-     cut lands on the sphere's u = 0/1 meridian — a hard seam down the backdrop.
-     Paint it a canvas to each side as well and let the off-canvas copies clip;
-     the two halves then meet at the meridian. */
-  for (const dx of [-size, 0, size]) {
-    const cx = spot.u * size + dx;
-    if (cx + r < 0 || cx - r > size) continue;
-    const rg = pl.createRadialGradient(cx, cy, 0, cx, cy, r);
-    rg.addColorStop(0, spot.color);
-    rg.addColorStop(0.55, mid);
-    rg.addColorStop(1, 'rgba(0,0,0,0)');
-    pl.fillStyle = rg;
-    pl.fillRect(0, 0, size, h);
+  if (spot) {
+    const cy = spot.v * h, r = spot.r * size;
+    const mid = spot.color.replace(/[\d.]+\)$/, '0.42)');
+    g.globalCompositeOperation = 'lighter';
+    /* the sphere wraps horizontally, so a pool this far round (u ≈ 0.85) runs
+       off the right edge of the canvas. Painted once it would be sliced there,
+       and the cut lands on the sphere's u = 0/1 meridian — a hard seam down the
+       backdrop. Paint it a canvas to each side as well and let the off-canvas
+       copies clip; the two halves then meet at the meridian. */
+    for (const dx of [-size, 0, size]) {
+      const cx = spot.u * size + dx;
+      if (cx + r < 0 || cx - r > size) continue;
+      const rg = g.createRadialGradient(cx, cy, 0, cx, cy, r);
+      rg.addColorStop(0, spot.color);
+      rg.addColorStop(0.55, mid);
+      rg.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = rg;
+      g.fillRect(0, 0, size, h);
+    }
+    g.globalCompositeOperation = 'source-over';
   }
-  pl.globalCompositeOperation = 'destination-in';
-  const mask = pl.createLinearGradient(0, 0, 0, h);
-  for (const [p, a] of POLE_TAPER) mask.addColorStop(p, `rgba(0,0,0,${a})`);
-  pl.fillStyle = mask;
-  pl.fillRect(0, 0, size, h);
-  g.globalCompositeOperation = 'lighter';
-  g.drawImage(layer, 0, 0);
-  g.globalCompositeOperation = 'source-over';
-}
-
-/* One gaussian over the whole backdrop, on the way out.
-
-   It is doing two jobs. A piecewise-linear gradient is only C0 — its slope breaks
-   at every stop — and across a surface this large a slope break is visible as a
-   band: the same Mach banding that makes a three-stop sky read as three stripes
-   rather than as one sky. And what is left of the pool's own falloff, and of the
-   taper that keeps it off the poles, reads as the *edge* of a glow instead of as
-   light. Both are slope changes, and a blur is the one operation that softens a
-   slope change without moving the shape it belongs to: the stops keep their
-   colours and their places, the pool keeps its centre and its brightness.
-
-   The source is tiled into a padded canvas first. A blur samples outside its
-   input, and at the canvas edge that means sampling nothing — the poles would be
-   pulled toward transparent and a faint seam would open down the u = 0 meridian.
-   Filled in the way the sphere actually repeats, the blur sees what the sphere
-   sees: continuous across u, clamped at v. */
-function soften(src, size, h, r) {
-  const pad = Math.ceil(r * 3);
-  const big = canvas(size + pad * 2, h + pad * 2), bg = big.getContext('2d');
-  for (const dx of [-1, 0, 1]) {
-    const x = pad + dx * size;
-    bg.drawImage(src, x, pad, size, h);                            // the band itself
-    bg.drawImage(src, 0, 0, size, 1, x, 0, size, pad);             // the top row, stretched up
-    bg.drawImage(src, 0, h - 1, size, 1, x, pad + h, size, pad);   // the bottom row, stretched down
-  }
-  const out = canvas(size, h), og = out.getContext('2d');
-  og.filter = `blur(${r}px)`;
-  og.drawImage(big, -pad, -pad);
-  og.filter = 'none';
-  return out;
+  return tex(c, { srgb: true });
 }
 
 /** vertical studio gradient used for the environment dome */

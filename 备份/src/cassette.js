@@ -217,9 +217,9 @@ export function createMaterials(labelOpts = {}) {
   leadA.channel = 1;
 
   // transparent, and depth-writing still: the oxide is opaque and wants the
-  // depth it always had (the AO reads the depth buffer, and an occlusion that
-  // stops at the tape is worse than a leader that cannot quite be seen through).
-  // forceSinglePass because the ribbon is a closed
+  // depth it always had (the AO and the toon ink both read the depth buffer,
+  // and an outline that stops at the tape is worse than a leader that cannot
+  // quite be seen through). forceSinglePass because the ribbon is a closed
   // prism — there is no back face to draw, and three would build a second
   // program for it every frame.
   const tape = new THREE.MeshPhysicalMaterial({
@@ -321,14 +321,6 @@ export function createMaterials(labelOpts = {}) {
        the layers, not the coating. */
     packFace: new THREE.MeshPhysicalMaterial({
       map: TX.tapeEdgeTexture(1024, BORE_V), metalness: 0.08, roughness: 0.28,
-      /* The disc's bore is *erased* in the texture (see tapeEdgeTexture), and
-         this is what turns erased alpha into a hole rather than into black. The
-         faces stay opaque geometry — they keep writing depth and sorting exactly
-         as they did — but the fragment that used to be the black cap over the
-         hub's bore is simply not drawn, so you look down the bore to the opening
-         in the shell. The hub is a tube and the spindle hole is a hole; a pencil
-         goes through a real cassette here. */
-      alphaTest: 0.5,
       sheen: 0.45, sheenColor: new THREE.Color(0x9c6636), sheenRoughness: 0.45,
       clearcoat: 0.18, clearcoatRoughness: 0.42, envMapIntensity: 0.9,
     }),

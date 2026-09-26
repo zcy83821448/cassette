@@ -28,6 +28,16 @@ export const RIG = {
     top: { c: 0xeef3ff, i: 0.22, w: 12, h: 12, p: [-0.8, 8.8, 1.2] },
     shadow: { i: 0.75, p: [-6.4, 5.2, 6.6] },
   },
+  toon: {
+    // flat, high key ratio so posterising has as few gradations as possible
+    exposure: 1.0, envInt: 0.90,
+    key: { c: 0xfff6ea, i: 1.55, w: 18, h: 14, p: [-7.0, 8.5, 8.0] },
+    fill: { c: 0xeef4ff, i: 1.35, w: 20, h: 16, p: [8.5, 4.0, 7.0] },
+    rim: { c: 0xffffff, i: 1.05, w: 2.5, h: 16, p: [2.0, 6.0, -10.0] },
+    bounce: { c: 0xfff4e6, i: 0.80, w: 16, h: 16, p: [0.5, -3.4, 4.0] },
+    top: { c: 0xffffff, i: 0.60, w: 18, h: 18, p: [0.0, 11.0, 1.0] },
+    shadow: { i: 0.35, p: [-7.0, 8.5, 8.0] },
+  },
   studio: {
     exposure: 0.90, envInt: 0.70,
     key: { c: 0xfff8ee, i: 2.05, w: 14, h: 10, p: [-7.6, 6.6, 7.6] },

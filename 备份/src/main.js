@@ -15,120 +15,12 @@ const $ = (s) => document.querySelector(s);
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const canvas = $('#gl');
 
-/* ============================== nothing changes in one frame ==============
-   Two helpers, and between them every read-out on this page changes the way
-   everything else does — by moving. Both are here, at the top, because the boot
-   sequence writes labels before the rest of the module exists.
-
-   swapText is for words: 走带 ／ 暂停, 读取整机 ／ 读取磁带, the vantage's name, the
-   model plate on the masthead, the track in the chip. Assigning textContent
-   replaces the glyphs between two frames, which is a cut; so the outgoing word
-   leaves upward, the incoming one arrives from below, and a swap that arrives
-   mid-flight only moves the target — holding — walks the read-out without it
-   flickering. Falls through to a plain write for the very first value and under
-   prefers-reduced-motion.
-
-   setRoll is for numbers: the counter, the clock, the deck's numeral, the volume
-   readout, the dial. The text is built once as one cell per character and only
-   the characters that changed move — the old digit rises out of the cell while
-   the new one rises in from underneath, which is what a tape counter does. The
-   cells are right-aligned, so a read-out that gains a digit (`0%` → `100%`) gains
-   a cell rather than being rebuilt, and the ones place never moves. Tabular
-   figures mean the cell is the same width before and after anyway.
-
-   Both drive the Web Animations API rather than CSS classes: replaying a class
-   animation needs the class removed, a reflow forced and the class re-added, and
-   this runs once a second for the life of the page. */
-const RISE = { duration: 300, easing: 'cubic-bezier(.16, 1, .3, 1)' };
-const LEAVE = { duration: 150, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' };
-const FROM_ABOVE = [{ opacity: 0, transform: 'translateY(.5em)' }, { opacity: 1, transform: 'none' }];
-const TO_ABOVE = [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-.5em)' }];
-const FROM_BELOW = [{ opacity: 0, transform: 'translateY(.72em)' }, { opacity: 1, transform: 'none' }];
-const TO_ABOVE_CELL = [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-.72em)' }];
-
-function swapText(el, text) {
-  if (!el) return;
-  text = String(text);
-  if (el.__t === text) return;
-  const seed = el.__t === undefined;
-  el.__t = text;
-  if (seed || reduce) { el.textContent = text; return; }
-  if (el.__leaving) return;             // already on its way out; __t holds the latest
-  el.__leaving = true;
-  const out = el.animate(TO_ABOVE, LEAVE);
-  /* Arriving is a timer's job, not the animation's `finish` event. A stalled or
-     throttled animation clock — a backgrounded tab, a machine in low-power mode,
-     a headless renderer — would otherwise leave the label showing its old word
-     for good, and a read-out that lies is worse than one that cuts. The
-     movement is decoration; the arrival is the contract. */
-  clearTimeout(el.__swapT);
-  el.__swapT = setTimeout(() => {
-    el.__leaving = false;
-    // the fill has to go before the new text is written, or its forwards fill
-    // would still be holding opacity 0 under the incoming animation
-    out.cancel();
-    el.textContent = el.__t;
-    el.animate(FROM_ABOVE, RISE);
-  }, LEAVE.duration);
-}
-
-/** The in-only variant, for a read-out that is rewritten faster than a two-part
-    swap can finish — the loader's status line, which changes once per boot step.
-    Every value arrives with motion and none of them is ever dark, which is the
-    one case where a two-part swap would be worse than useless: with steps a frame
-    apart the outgoing half never gets to finish, and the line would sit at
-    opacity 0 for the whole load. */
-function riseText(el, text) {
-  if (!el) return;
-  text = String(text);
-  if (el.__r === text) return;
-  const seed = el.__r === undefined;
-  el.__r = text;
-  el.textContent = text;
-  if (seed || reduce) return;
-  el.animate(FROM_ABOVE, RISE);
-}
-
-function setRoll(el, text) {
-  if (!el) return;
-  text = String(text);
-  if (el.__v === text) return;
-  const seed = el.__v === undefined;
-  el.__v = text;
-  let cells = el.__cells;
-  if (!cells) {
-    el.textContent = '';
-    cells = el.__cells = [];
-  }
-  while (cells.length < text.length) {
-    const c = document.createElement('span');
-    c.className = 'od';
-    c.append(document.createElement('b'), document.createElement('b'));
-    el.append(c);
-    cells.push(c);
-  }
-  // right-aligned: growing a digit adds a cell on the left, so the ones place —
-  // and everything to the right of it — never moves
-  const off = cells.length - text.length;
-  for (let i = 0; i < cells.length; i++) {
-    const ch = i < off ? '' : text[i - off];
-    const c = cells[i];
-    if (c.__c === ch) continue;
-    const old = c.__c ?? '';
-    c.__c = ch;
-    c.lastElementChild.textContent = old;
-    c.firstElementChild.textContent = ch;
-    if (seed || reduce || !old || !ch) continue;
-    c.lastElementChild.animate(TO_ABOVE_CELL, RISE);
-    c.firstElementChild.animate(FROM_BELOW, RISE);
-  }
-}
-
 /* ============================== theme presets ============================ */
 const THEMES = {
   noir: {
     env: 'noir', dust: 0.40, hal: 0.072, ao: 1.0,
     grade: { bloom: 0.32, ca: 0.85, grain: 0.050, vig: 0.85, sat: 1.0, edge: 1.0, focus: 0.26 },
+    toon: { on: 0 },
     bg: {
       stops: [[0, '#12151a'], [0.44, '#1e232a'], [0.64, '#0d1014'], [1, '#040507']],
       spot: { u: 0.849, v: 0.48, r: 0.40, color: 'rgba(140,162,200,0.75)' },
@@ -139,12 +31,25 @@ const THEMES = {
   studio: {
     env: 'studio', dust: 0.16, hal: 0.020, ao: 0.92,
     grade: { bloom: 0.32, ca: 0.85, grain: 0.050, vig: 0.85, sat: 1.0, edge: 1.0, focus: 0.26 },
+    toon: { on: 0 },
     bg: {
       stops: [[0, '#9aa0a8'], [0.46, '#c2c7ce'], [0.78, '#d8dade'], [1, '#e9ebee']],
       spot: { u: 0.849, v: 0.48, r: 0.44, color: 'rgba(255,255,255,0.50)' },
     },
     floor2: 0x9ba1a9, floorMix: 0.38, shadowOp: 0.26,
     pool: 0xffffff, poolOp: 0.04,
+  },
+  toon: {
+    // 三渲二: flat high-key light, posterised luminance, inked creases
+    env: 'studio', dust: 0.09, hal: 0.012, ao: 0.50,
+    grade: { bloom: 0.20, ca: 0.22, grain: 0.026, vig: 0.48, sat: 1.12, edge: 1.0, focus: 0.26 },
+    toon: { on: 1, levels: 4, flat: 0.88, ink: 0.60, width: 1.5 },
+    bg: {
+      stops: [[0, '#b4b9c1'], [0.46, '#d8dbdf'], [0.78, '#eef0f2'], [1, '#f8f9fa']],
+      spot: { u: 0.849, v: 0.50, r: 0.52, color: 'rgba(255,255,255,0.60)' },
+    },
+    floor2: 0xb6bbc2, floorMix: 0.26, shadowOp: 0.22,
+    pool: 0xffffff, poolOp: 0.03,
   },
 };
 for (const T of Object.values(THEMES)) {
@@ -416,9 +321,9 @@ function setDur() {
   cas.st.duration = d;
 }
 function setNowChip() {
-  swapText($('#now-title'), TRACK.title);
+  $('#now-title').textContent = TRACK.title;
   const credits = [TRACK.artist, TRACK.album].filter(Boolean).join(' · ');
-  swapText($('#now-sub'), audioFailed ? '音频加载失败 · 仅走带动画' : (credits || '未知曲目'));
+  $('#now-sub').textContent = audioFailed ? '音频加载失败 · 仅走带动画' : (credits || '未知曲目');
 }
 
 /** the file's own length as a promise — the media element is the only thing that
@@ -518,7 +423,7 @@ function settleSwap() {
   // was, and the card keeps the '--' it was printed with
   if (swap.dur > 0) {
     cas.st.duration = swap.dur;
-    swapText(brandCode, 'C—' + tapeMinutes(swap.dur));
+    brandCode.textContent = 'C—' + tapeMinutes(swap.dur);
   }
   setNowChip();
   flashAdd(null);
@@ -562,7 +467,7 @@ function reinitTrack() {
   cas.commitLabel();
   for (const t of staged.old) t.dispose();
   cas.warmLabel(false);
-  swapText(brandCode, 'C—05');
+  brandCode.textContent = 'C—05';
   setNowChip();
   swap.dur = 0;
 }
@@ -825,11 +730,18 @@ function applyTheme(dt, instant = false) {
   // something rather than setting a number.
   grade.uniforms.uVig.value = to(grade.uniforms.uVig.value, (G.vig ?? 0.85) * prefs.vig);
   grade.uniforms.uSat.value = to(grade.uniforms.uSat.value, G.sat ?? 1);
-  // the lens' own defocus is here so a room *can* own it; both rooms are at the
-  // same numbers today
+  // the lens' own defocus was the one stage no theme could reach: it sat at its
+  // default in all three rooms, so 动画 got the same wide-open blur as 暗房.
+  // Same numbers everywhere today — this is here so a theme *can* own it.
   grade.uniforms.uEdge.value = to(grade.uniforms.uEdge.value, G.edge ?? 1);
   grade.uniforms.uFocus.value = to(grade.uniforms.uFocus.value, G.focus ?? 0.26);
   if (bloom) bloom.strength = to(bloom.strength, G.bloom ?? 0.32);
+  const TO = T.toon ?? { on: 0 };
+  grade.uniforms.uToon.value = to(grade.uniforms.uToon.value, TO.on ?? 0);
+  grade.uniforms.uFlat.value = to(grade.uniforms.uFlat.value, TO.flat ?? 0);
+  grade.uniforms.uInk.value = to(grade.uniforms.uInk.value, TO.ink ?? 0);
+  if (TO.levels) grade.uniforms.uLevels.value = TO.levels;
+  if (TO.width) grade.uniforms.uInkWidth.value = TO.width;
   if (composer?.ao) composer.ao.strength = to(composer.ao.strength, T.ao ?? 1);
   poolMat.color.lerp(T.cPool, k);
   poolMat.opacity = to(poolMat.opacity, T.poolOp);
@@ -981,17 +893,17 @@ const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeou
 function showError(msg) {
   console.error(msg);
   if (loaderLbl.parentElement) {
-    setRoll(loaderPct, 'ERR');
-    riseText(loaderLbl, String(msg).slice(0, 160));
+    loaderPct.textContent = 'ERR';
+    loaderLbl.textContent = String(msg).slice(0, 160);
     loaderLbl.style.color = '#e0684a';
   }
 }
 addEventListener('error', (e) => showError(e.error?.stack || e.message));
 addEventListener('unhandledrejection', (e) => showError(e.reason?.stack || e.reason?.message || String(e.reason)));
 async function step(label, pct, fn) {
-  riseText(loaderLbl, label);
+  loaderLbl.textContent = label;
   loaderBar.style.width = pct + '%';
-  setRoll(loaderPct, pct + '%');
+  loaderPct.textContent = pct + '%';
   await nextFrame();
   await fn?.();
   await nextFrame();
@@ -1482,17 +1394,6 @@ const live = (r, i) => i === ri && (r.key ? focusKey === r.key : !exploded && fo
    them with it, including the row under the pointer. */
 function swapIn(h0) {
   const el = D.doc;
-  /* The sheet is re-ruled as well as rewritten: the rule under the file number
-     and the one under REFERENCE AREA draw themselves in from the left, which is
-     what says a fresh slip has been laid on the plate rather than the old one
-     edited. A class rather than a style so the two rules can be given different
-     delays in CSS; `offsetWidth` is the forced restart, and it is one read on a
-     record change. */
-  clearTimeout(reprintT);
-  D.dossier.classList.remove('reprint');
-  void D.dossier.offsetWidth;
-  D.dossier.classList.add('reprint');
-  reprintT = setTimeout(() => D.dossier.classList.remove('reprint'), 900);
   /* A grow from the last pick may still be in flight. Put the box back on auto
      before measuring, or this one reads the height the last one is passing
      through and walks to a height that was never the sheet's. (Nothing is painted
@@ -1522,7 +1423,6 @@ function swapIn(h0) {
   }, 460);
 }
 let docT = 0;
-let reprintT = 0;
 
 /** Where the panel hangs from: half of what it measures when it is framed at its
     own length. Set once and on resize — never on a record change, or the panel
@@ -1768,23 +1668,20 @@ function render(bump = false) {
   const R = cur();
   // measured before the sheet is rewritten: swapIn() walks the box from this
   const docH = D.doc.getBoundingClientRect().height;
-  swapText(D.colCn, R.cn);
+  D.colCn.textContent = R.cn;
   setFileNo(R.no);
   D.fileCn.textContent = R.cn;
   D.fileEn.textContent = R.en;
   D.fileNote.textContent = R.note;
-  setRoll(D.selI, R.no);
-  swapText(D.accessLabel, R.act);
+  D.selI.textContent = R.no;
+  D.accessLabel.textContent = R.act;
   D.access.classList.toggle('done', live(R, ri));
   // only rebuild the spec rows when the record actually changed — render runs
   // on every arrow press and theme switch, and a rebuild drops hover state
   if (D.fileSpec.dataset.no !== R.no) {
     D.fileSpec.dataset.no = R.no;
-    D.fileSpec.replaceChildren(...R.spec.map(([k, v], i) => {
+    D.fileSpec.replaceChildren(...R.spec.map(([k, v]) => {
       const li = document.createElement('li');
-      // the row's index, for the cascade in styles.css: the table arrives in
-      // order rather than as one block
-      li.style.setProperty('--i', i);
       li.innerHTML = `<span>${k}</span><b>${v}</b>`;
       return li;
     }));
@@ -1797,9 +1694,9 @@ function render(bump = false) {
 
   // the vantage read-out falls back to the record's own framing, and says so
   const V = vi >= 0 ? VANTAGES[vi] : null;
-  setRoll(D.colI, V ? String(vi + 1).padStart(2, '0') : '--');
-  swapText(D.colCn2, V ? V.cn : R.viewName);
-  swapText(D.colEn, V ? V.en : R.viewEn);
+  D.colI.textContent = V ? String(vi + 1).padStart(2, '0') : '--';
+  D.colCn2.textContent = V ? V.cn : R.viewName;
+  D.colEn.textContent = V ? V.en : R.viewEn;
 
   // the pick list and the ticks are the same six records at two sizes. Both
   // were built once, further up — rebuilding them here would replace the
@@ -1879,7 +1776,7 @@ const volRead = $('#vol-read');
 const muteBtn = $('#btn-mute');
 let volFlash = 0;
 function showVolume() {
-  swapText(volRead, muted ? '静音' : `${Math.round(volume * 100)}%`);
+  volRead.textContent = muted ? '静音' : `${Math.round(volume * 100)}%`;
   muteBtn.classList.add('show-vol');
   clearTimeout(volFlash);
   volFlash = setTimeout(() => muteBtn.classList.remove('show-vol'), 1100);
@@ -1903,8 +1800,6 @@ function buildIndex() {
   indexCols.replaceChildren(...RECORDS.map((R, x) => {
     const d = document.createElement('div');
     d.className = 'icol' + (x === ri ? ' on' : '');
-    // the card's index, for the cascade in styles.css
-    d.style.setProperty('--i', x);
     const h = document.createElement('button');
     h.className = 'icol-h';
     h.innerHTML = `<span>${R.no} ${R.cn}</span><em>${R.en}</em>`;
@@ -2005,16 +1900,10 @@ const DIAL_STEPS = 20;                 // one detent per 5%, and one click with 
 function paintDial(s) {
   const v = prefs[s.k];
   s.dialEl.value = String(v);
-  // the same `--p` the transport's rail reads: the fill is an element that
-  // scales, so a click on the rail slides instead of jumping. It lives on the
-  // track's wrapper so the fill and the input share one number.
-  s.dialEl.parentElement.style.setProperty('--p', v.toFixed(3));
+  s.dialEl.style.setProperty('--fill', (v * 100).toFixed(1) + '%');
   // 0 is the switch it used to be, and 关 is what this sheet says for off
-  const label = v > 0 ? Math.round(v * 100) + '%' : '关';
-  setRoll(s.valEl, label);
-  // read from the label rather than from the element: a rolled read-out's
-  // textContent is the live cells *plus* whatever ghost is mid-flight
-  s.dialEl.setAttribute('aria-valuetext', label);
+  s.valEl.textContent = v > 0 ? Math.round(v * 100) + '%' : '关';
+  s.dialEl.setAttribute('aria-valuetext', s.valEl.textContent);
 }
 function syncSettings() {
   for (const s of SETTINGS) {
@@ -2040,31 +1929,22 @@ function setPref(s, v) {
 /* built when the sheet is opened, like the index's cards, and rebuilt each time:
    the state can only have changed from in here */
 function buildSettings() {
-  setList.replaceChildren(...SETTINGS.map((s, i) => {
+  setList.replaceChildren(...SETTINGS.map((s) => {
     const li = document.createElement('li');
     li.className = 'set-row';
-    // the row's index, for the cascade in styles.css
-    li.style.setProperty('--i', i);
     const t = document.createElement('div');
     t.className = 'set-t';
     t.innerHTML = `<b>${s.cn}</b><i>${s.en}</i><em>${s.note}</em>`;
     if (s.dial) {
       const box = document.createElement('div');
       box.className = 'set-dial';
-      // the same parts as the transport's rail: a track, an ink fill that scales,
-      // and the native range above them. Two rails on one page, one language.
-      const track = document.createElement('div');
-      track.className = 'dial-track';
-      const fill = document.createElement('i');
-      fill.className = 'rail-fill';
-      fill.setAttribute('aria-hidden', 'true');
       const r = document.createElement('input');
       r.type = 'range'; r.min = '0'; r.max = '1'; r.step = String(1 / DIAL_STEPS);
       r.className = 'ui-hit';
       r.setAttribute('aria-label', `${s.cn}强度`);
-      track.append(fill, r);
       const out = document.createElement('b');
-      out.className = 'set-val';      // the vignette is damped in applyTheme, so the picture follows the thumb
+      out.className = 'set-val';
+      // the vignette is damped in applyTheme, so the picture follows the thumb
       // a beat behind it — which is what a knob on a machine does
       let detent = Math.round(prefs.vig * DIAL_STEPS);
       r.addEventListener('input', () => {
@@ -2073,7 +1953,7 @@ function buildSettings() {
         if (k !== detent) { detent = k; audio.tick(); }
         setPref(s, v);
       });
-      box.append(track, out);
+      box.append(r, out);
       s.dialEl = r; s.valEl = out;
       li.append(t, box);
       return li;
@@ -2182,85 +2062,6 @@ $('#btn-access').addEventListener('click', () => readRecord());
 $('#btn-index').addEventListener('click', toggleIndex);
 $('#index-close').addEventListener('click', closeIndex);
 $('#btn-reinit').addEventListener('click', reinit);
-
-/* ---------- the seek rail -------------------------------------------------
-   A real <input type="range">, not a div with a pointer handler: the drag, the
-   click-to-jump, the arrow keys, Home/End and the slider role all arrive
-   already working, and the settings sheet already styles one of these — so the
-   rail under the counter and the dial in the sheet are visibly the same part.
-   The filled part of the rail is its own element (`.rail-fill`), sized by `--p`
-   as a fraction of the rail: a gradient stop could not be interpolated, so a
-   click on the rail teleported the ink. `--p` is written on the *track*, so the
-   fill, the tick scale and the input all read one number.
-
-   Two things the loop may not do to it. It may not write the value back while a
-   hand is on it — `scrubbing` is that lock, and without it the thumb is dragged
-   one way and pushed the other. And it may not decide where the tape is after a
-   seek: `cas.setProgress()` is the picture's opinion of the same number the
-   audio element was just given, so tape and sound land together. */
-const seekEl = $('#seek');
-const railEl = seekEl.parentElement;
-let scrubbing = false;
-let railShown = -1;                     // what the fill currently shows, so the
-                                        // loop only writes when it moves
-
-/** put the tape where the hand put the rail, and the read-out with it */
-function seekTo(frac) {
-  if (!cas) return;
-  const dur = audioOk() ? audioEl.duration : cas.st.duration;
-  if (!(dur > 0)) return;
-  const f = clamp(frac, 0, 1);
-  // A seek is a positioning action, so it ends a spool-back rather than
-  // interrupting one: the reel is taken, the run is abandoned, and the
-  // transport is left standing at the point it was dropped on. `dir` has to be
-  // set back to forward by hand — left on the rewind it would spool to the end
-  // the moment play was pressed again.
-  if (mode === 'rew') togglePlay(false);
-  cas.st.dir = -1;
-  if (audioOk()) audioEl.currentTime = f * dur;
-  cas.setProgress(f);
-  // the loop's counter tick is a fifth of a second behind a hand; this is the
-  // one place the two clocks are told to agree now
-  const tc = $('#tc');
-  const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-  setRoll(tc, fmt(f * dur));
-  seekEl.value = String(f);
-  railShown = f;
-  railEl.style.setProperty('--p', f.toFixed(4));
-  document.body.classList.add('moved');
-}
-seekEl.addEventListener('pointerdown', () => { scrubbing = true; });
-seekEl.addEventListener('input', () => { scrubbing = true; seekTo(+seekEl.value); });
-seekEl.addEventListener('change', () => { scrubbing = false; seekTo(+seekEl.value); });
-seekEl.addEventListener('pointerup', () => { scrubbing = false; });
-seekEl.addEventListener('keyup', () => { scrubbing = false; });
-/* the native range only steps, so the two ends of the tape are asked for by
-   name — a listener here cannot reach the global one, which already hands the
-   arrows to a focused range and would otherwise step the vantage instead */
-seekEl.addEventListener('keydown', (e) => {
-  if (e.key === 'Home') { e.preventDefault(); seekTo(0); }
-  else if (e.key === 'End') { e.preventDefault(); seekTo(1); }
-});
-
-/* ---------- the key legend is a read-out, not a caption -------------------
-   Each chip carries the key it names (data-k), and the chip lights for as long
-   as the key is held. One querySelector per keystroke; it is the only place the
-   page admits out loud which keys it is listening for, and a legend that
-   answers back stops being furniture. */
-const keyChips = [...document.querySelectorAll('#keys .kg')];
-const chipFor = (k) => keyChips.find((c) => (c.dataset.k || '').split(' ').includes(k));
-const chipKey = (e) => (e.key === ' ' ? 'space' : String(e.key || '').toLowerCase());
-addEventListener('keydown', (e) => {
-  if (e.repeat) return;
-  const c = chipFor(chipKey(e));
-  if (c) c.classList.add('hit');
-});
-addEventListener('keyup', (e) => {
-  const c = chipFor(chipKey(e));
-  if (c) c.classList.remove('hit');
-});
-// a key still held when the window loses focus never sends its keyup
-addEventListener('blur', () => { for (const c of keyChips) c.classList.remove('hit'); });
 
 /* ---------- ADD MUSIC ----------
    One file, and it replaces what is in the shell — the page is a single tape,
@@ -2373,7 +2174,7 @@ function togglePlay(force) {
   document.body.classList.toggle('playing', on);
   // the label always names what pressing it does next, so the idling state
   // says 走带 — the same word it says before the first press
-  swapText($('#play-label'), on ? '暂停' : '走带');
+  $('#play-label').textContent = on ? '暂停' : '走带';
   if (on) {
     mode = 'play';
     if (audioOk()) {
@@ -2631,6 +2432,7 @@ function loop() {
   syncPanelFold();
   cas.root.getWorldPosition(subjectPos).project(camera);
   grade.uniforms.uCenter.value.set(subjectPos.x * 0.5 + 0.5, subjectPos.y * 0.5 + 0.5);
+  grade.uniforms.uProjInv.value.copy(camera.projectionMatrixInverse);
   watchPerf(dt);
   applyTheme(dt, reduce);
   updateAnnotations();
@@ -2642,22 +2444,11 @@ function loop() {
     counterAcc = 0;
     const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
     const t1 = fmt(st.time), t2 = fmt(st.duration);
-    setRoll(tcEl, t1);
-    setRoll(tdEl, t2);
-    // the rail rides the same clock the counter does, and is left alone while a
-    // hand is on it (see the seek wiring) — one throttle for both, so the two
-    // read-outs can never disagree about where the tape is
-    if (!scrubbing && st.duration > 0) {
-      const frac = clamp(st.time / st.duration, 0, 1);
-      if (Math.abs(frac - railShown) > 2e-4) {
-        railShown = frac;
-        seekEl.value = String(frac);
-        railEl.style.setProperty('--p', frac.toFixed(4));
-      }
-    }
+    if (tcEl.textContent !== t1) tcEl.textContent = t1;
+    if (tdEl.textContent !== t2) tdEl.textContent = t2;
     const d = new Date();
     const cs = `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
-    setRoll(clockEl, cs);
+    if (clockEl.textContent !== cs) clockEl.textContent = cs;
     // tab title doubles as a transport read-out
     const audioLive = audioOk() && !audioEl.paused && !audioEl.ended;
     // writing document.title re-titles the native window every time; only do it

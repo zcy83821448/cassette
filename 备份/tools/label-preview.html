@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>J-card preview</title>
+<style>
+  body { margin: 0; padding: 20px; background: #4a4f57; font: 12px/1.5 Consolas, monospace; color: #dfe2e7; }
+  figure { margin: 0 0 24px; }
+  figcaption { letter-spacing: .16em; margin-bottom: 6px; color: #b9c0c9; }
+  canvas { display: block; outline: 1px solid #2b2f34; }
+  .card { position: relative; width: 1000px; }
+  .win { position: absolute; outline: 2px dashed #ff6a3d; outline-offset: -2px;
+         background: rgba(255,106,61,.10); font-size: 11px; letter-spacing: .12em;
+         color: #ffd9c9; padding: 4px 6px; display: flex; align-items: flex-start; }
+  /* the window is a hole in the plate: the tape pack and the shell show through
+     it, and none of the painting does */
+  .seen { position: absolute; background: #2c2f33; }
+  .card img { display: block; outline: 1px solid #2b2f34; }
+</style>
+</head>
+<body>
+<pre id="err" style="color:#ffb4a0;white-space:pre-wrap"></pre>
+<script>
+  addEventListener('error', (e) => {
+    document.getElementById('err').textContent =
+      `${e.message}\n${e.filename}:${e.lineno}:${e.colno}\n${e.error && e.error.stack || ''}`;
+  });
+</script>
+<script src="../dist/label-preview.js"></script>
+</body>
+</html>

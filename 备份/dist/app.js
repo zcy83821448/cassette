@@ -29877,11 +29877,10 @@ void main() {
     g.fillRect(0, 0, size, size);
     const r = rng(77);
     const R0 = R * bore;
-    g.globalCompositeOperation = "destination-out";
+    g.fillStyle = "#0c0e10";
     g.beginPath();
     g.arc(R, R, R0, 0, Math.PI * 2);
     g.fill();
-    g.globalCompositeOperation = "source-over";
     const rings = Math.round((1 - bore) * EDGE_RINGS);
     for (let i = rings; i > 0; i--) {
       const f = bore + i / rings * (1 - bore);
@@ -29967,57 +29966,23 @@ void main() {
     for (const [p, col] of stops) lg.addColorStop(p, col);
     g.fillStyle = lg;
     g.fillRect(0, 0, size, h);
-    if (spot) pool(g, size, h, spot);
-    return tex(soften(c, size, h, Math.round(size / 96)), { srgb: true });
-  }
-  var POLE_TAPER = [
-    [0, 0],
-    [0.07, 0.12],
-    [0.15, 0.5],
-    [0.26, 1],
-    [0.74, 1],
-    [0.85, 0.5],
-    [0.93, 0.12],
-    [1, 0]
-  ];
-  function pool(g, size, h, spot) {
-    const layer = canvas(size, h), pl = layer.getContext("2d");
-    const cy = spot.v * h, r = spot.r * size;
-    const mid = spot.color.replace(/[\d.]+\)$/, "0.42)");
-    pl.globalCompositeOperation = "lighter";
-    for (const dx of [-size, 0, size]) {
-      const cx = spot.u * size + dx;
-      if (cx + r < 0 || cx - r > size) continue;
-      const rg = pl.createRadialGradient(cx, cy, 0, cx, cy, r);
-      rg.addColorStop(0, spot.color);
-      rg.addColorStop(0.55, mid);
-      rg.addColorStop(1, "rgba(0,0,0,0)");
-      pl.fillStyle = rg;
-      pl.fillRect(0, 0, size, h);
+    if (spot) {
+      const cy = spot.v * h, r = spot.r * size;
+      const mid = spot.color.replace(/[\d.]+\)$/, "0.42)");
+      g.globalCompositeOperation = "lighter";
+      for (const dx of [-size, 0, size]) {
+        const cx = spot.u * size + dx;
+        if (cx + r < 0 || cx - r > size) continue;
+        const rg = g.createRadialGradient(cx, cy, 0, cx, cy, r);
+        rg.addColorStop(0, spot.color);
+        rg.addColorStop(0.55, mid);
+        rg.addColorStop(1, "rgba(0,0,0,0)");
+        g.fillStyle = rg;
+        g.fillRect(0, 0, size, h);
+      }
+      g.globalCompositeOperation = "source-over";
     }
-    pl.globalCompositeOperation = "destination-in";
-    const mask = pl.createLinearGradient(0, 0, 0, h);
-    for (const [p, a] of POLE_TAPER) mask.addColorStop(p, `rgba(0,0,0,${a})`);
-    pl.fillStyle = mask;
-    pl.fillRect(0, 0, size, h);
-    g.globalCompositeOperation = "lighter";
-    g.drawImage(layer, 0, 0);
-    g.globalCompositeOperation = "source-over";
-  }
-  function soften(src, size, h, r) {
-    const pad = Math.ceil(r * 3);
-    const big = canvas(size + pad * 2, h + pad * 2), bg = big.getContext("2d");
-    for (const dx of [-1, 0, 1]) {
-      const x = pad + dx * size;
-      bg.drawImage(src, x, pad, size, h);
-      bg.drawImage(src, 0, 0, size, 1, x, 0, size, pad);
-      bg.drawImage(src, 0, h - 1, size, 1, x, pad + h, size, pad);
-    }
-    const out = canvas(size, h), og = out.getContext("2d");
-    og.filter = `blur(${r}px)`;
-    og.drawImage(big, -pad, -pad);
-    og.filter = "none";
-    return out;
+    return tex(c, { srgb: true });
   }
   function gradientTexture(stops, size = 512) {
     const c = canvas(size, size), g = c.getContext("2d");
@@ -30336,6 +30301,17 @@ void main() {
       bounce: { c: 16766888, i: 0.4, w: 12, h: 12, p: [0.5, -3.4, 3.8] },
       top: { c: 15660031, i: 0.22, w: 12, h: 12, p: [-0.8, 8.8, 1.2] },
       shadow: { i: 0.75, p: [-6.4, 5.2, 6.6] }
+    },
+    toon: {
+      // flat, high key ratio so posterising has as few gradations as possible
+      exposure: 1,
+      envInt: 0.9,
+      key: { c: 16774890, i: 1.55, w: 18, h: 14, p: [-7, 8.5, 8] },
+      fill: { c: 15660287, i: 1.35, w: 20, h: 16, p: [8.5, 4, 7] },
+      rim: { c: 16777215, i: 1.05, w: 2.5, h: 16, p: [2, 6, -10] },
+      bounce: { c: 16774374, i: 0.8, w: 16, h: 16, p: [0.5, -3.4, 4] },
+      top: { c: 16777215, i: 0.6, w: 18, h: 18, p: [0, 11, 1] },
+      shadow: { i: 0.35, p: [-7, 8.5, 8] }
     },
     studio: {
       exposure: 0.9,
@@ -31072,14 +31048,6 @@ void main() {
         map: tapeEdgeTexture(1024, BORE_V),
         metalness: 0.08,
         roughness: 0.28,
-        /* The disc's bore is *erased* in the texture (see tapeEdgeTexture), and
-           this is what turns erased alpha into a hole rather than into black. The
-           faces stay opaque geometry — they keep writing depth and sorting exactly
-           as they did — but the fragment that used to be the black cap over the
-           hub's bore is simply not drawn, so you look down the bore to the opening
-           in the shell. The hub is a tube and the spindle hole is a hole; a pencil
-           goes through a real cassette here. */
-        alphaTest: 0.5,
         sheen: 0.45,
         sheenColor: new Color(10249782),
         sheenRoughness: 0.45,
@@ -33327,6 +33295,8 @@ void main() {
   var Grade = {
     uniforms: {
       tDiffuse: { value: null },
+      tDepth: { value: null },
+      uProjInv: { value: new Matrix4() },
       uTime: { value: 0 },
       uGrain: { value: 0.05 },
       uVig: { value: 0.85 },
@@ -33339,7 +33309,14 @@ void main() {
       uFocus: { value: 0.26 },
       // uv radius that stays sharp
       uCenter: { value: new Vector2(0.5, 0.5) },
-      uTexel: { value: new Vector2(1 / 1920, 1 / 1080) }
+      uTexel: { value: new Vector2(1 / 1920, 1 / 1080) },
+      // stylised (三渲二) stage
+      uToon: { value: 0 },
+      uLevels: { value: 4 },
+      uFlat: { value: 0.85 },
+      uInk: { value: 0.62 },
+      uInkWidth: { value: 1.5 },
+      uInkColor: { value: new Color(723472) }
     },
     vertexShader: (
       /* glsl */
@@ -33351,8 +33328,11 @@ void main() {
     fragmentShader: (
       /* glsl */
       `
-    uniform sampler2D tDiffuse;
+    uniform sampler2D tDiffuse, tDepth;
+    uniform mat4 uProjInv;
     uniform float uTime, uGrain, uVig, uCA, uFade, uSat, uHal, uEdge, uFocus;
+    uniform float uToon, uLevels, uFlat, uInk, uInkWidth;
+    uniform vec3 uInkColor;
     uniform vec2 uCenter, uTexel;
     varying vec2 vUv;
 
@@ -33370,6 +33350,15 @@ void main() {
       s += texture2D(tDiffuse, uv + vec2(r.x, -r.y) * 0.70).rgb * 0.095;
       s += texture2D(tDiffuse, uv + vec2(-r.x, r.y) * 0.70).rgb * 0.095;
       return s;
+    }
+
+    vec3 viewPos(vec2 uv, float d) {
+      vec4 p = uProjInv * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+      return p.xyz / p.w;
+    }
+    vec3 normalAt(vec2 uv, float d) {
+      vec3 p = viewPos(uv, d);
+      return normalize(cross(dFdx(p), dFdy(p)));
     }
 
     void main() {
@@ -33394,6 +33383,48 @@ void main() {
       // halation: warm bleed off the brightest speculars
       c += vec3(1.0, 0.60, 0.32) * smoothstep(0.78, 1.0, l) * uHal;
       c = mix(vec3(l), c, uSat);
+
+      /* ---- stylised stage: posterised luminance + inked creases ----------
+         Edges come from two independent signals, because neither alone is
+         reliable: the normal break (from depth derivatives) catches creases
+         between touching parts, and the view-space depth step catches the
+         silhouette against the floor and the void. The depth threshold scales
+         with distance so a sloped surface never inks itself at grazing angles. */
+      if (uToon > 0.001) {
+        float d0 = texture2D(tDepth, uv).x;
+        // the floor, glass and dust do not write depth, so large parts of the
+        // frame have no depth at all. Reconstructing a normal from d = 1 gives
+        // NaN, and NaN survives clamp()/mix() as garbage pixels \u2014 so skip
+        // everything that is not solid geometry up front.
+        if (d0 < 0.99999) {
+        vec2 tx = uTexel * uInkWidth;
+        float dR = texture2D(tDepth, uv + vec2(tx.x, 0.0)).x;
+        float dL = texture2D(tDepth, uv - vec2(tx.x, 0.0)).x;
+        float dU = texture2D(tDepth, uv + vec2(0.0, tx.y)).x;
+        float dD = texture2D(tDepth, uv - vec2(0.0, tx.y)).x;
+
+        float z0 = -viewPos(uv, d0).z;
+        float thr = 0.013 * z0;
+        float step0 = abs(-viewPos(uv + vec2(tx.x, 0.0), dR).z - z0);
+        step0 = max(step0, abs(-viewPos(uv - vec2(tx.x, 0.0), dL).z - z0));
+        step0 = max(step0, abs(-viewPos(uv + vec2(0.0, tx.y), dU).z - z0));
+        step0 = max(step0, abs(-viewPos(uv - vec2(0.0, tx.y), dD).z - z0));
+        float depthEdge = smoothstep(thr, thr * 2.2, step0);
+
+        vec3 N = normalAt(uv, d0);
+        float nd = 0.0;
+        if (dR < 0.99999) nd += 1.0 - dot(N, normalAt(uv + vec2(tx.x, 0.0), dR));
+        if (dU < 0.99999) nd += 1.0 - dot(N, normalAt(uv + vec2(0.0, tx.y), dU));
+        float normalEdge = smoothstep(0.10, 0.55, nd);
+
+        float edge = clamp(max(depthEdge, normalEdge) * uInk, 0.0, 1.0);
+
+        float dith = (hash(uv * 977.0) - 0.5) * (0.85 / uLevels);
+        float lq = clamp(floor(l * uLevels + 0.5 + dith) / uLevels, 0.0, 1.0);
+        c *= mix(1.0, lq / max(l, 0.0015), uFlat * uToon);
+        c = mix(c, uInkColor, edge * uToon);
+        }
+      }
 
       float vig = smoothstep(1.18, 0.28, length(d) * 1.42);
       c *= mix(1.0, vig, uVig);
@@ -33428,6 +33459,7 @@ void main() {
     const output = new OutputPass();
     const grade2 = new ShaderPass(Grade);
     grade2.uniforms.uFade.value = 0;
+    grade2.uniforms.tDepth.value = depthTexture;
     composer2.addPass(render2);
     composer2.addPass(ao);
     composer2.addPass(bloom2);
@@ -33840,75 +33872,6 @@ void main() {
   var $ = (s) => document.querySelector(s);
   var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   var canvas2 = $("#gl");
-  var RISE = { duration: 300, easing: "cubic-bezier(.16, 1, .3, 1)" };
-  var LEAVE = { duration: 150, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" };
-  var FROM_ABOVE = [{ opacity: 0, transform: "translateY(.5em)" }, { opacity: 1, transform: "none" }];
-  var TO_ABOVE = [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-.5em)" }];
-  var FROM_BELOW = [{ opacity: 0, transform: "translateY(.72em)" }, { opacity: 1, transform: "none" }];
-  var TO_ABOVE_CELL = [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-.72em)" }];
-  function swapText(el, text) {
-    if (!el) return;
-    text = String(text);
-    if (el.__t === text) return;
-    const seed = el.__t === void 0;
-    el.__t = text;
-    if (seed || reduce) {
-      el.textContent = text;
-      return;
-    }
-    if (el.__leaving) return;
-    el.__leaving = true;
-    const out = el.animate(TO_ABOVE, LEAVE);
-    clearTimeout(el.__swapT);
-    el.__swapT = setTimeout(() => {
-      el.__leaving = false;
-      out.cancel();
-      el.textContent = el.__t;
-      el.animate(FROM_ABOVE, RISE);
-    }, LEAVE.duration);
-  }
-  function riseText(el, text) {
-    if (!el) return;
-    text = String(text);
-    if (el.__r === text) return;
-    const seed = el.__r === void 0;
-    el.__r = text;
-    el.textContent = text;
-    if (seed || reduce) return;
-    el.animate(FROM_ABOVE, RISE);
-  }
-  function setRoll(el, text) {
-    if (!el) return;
-    text = String(text);
-    if (el.__v === text) return;
-    const seed = el.__v === void 0;
-    el.__v = text;
-    let cells = el.__cells;
-    if (!cells) {
-      el.textContent = "";
-      cells = el.__cells = [];
-    }
-    while (cells.length < text.length) {
-      const c = document.createElement("span");
-      c.className = "od";
-      c.append(document.createElement("b"), document.createElement("b"));
-      el.append(c);
-      cells.push(c);
-    }
-    const off = cells.length - text.length;
-    for (let i = 0; i < cells.length; i++) {
-      const ch = i < off ? "" : text[i - off];
-      const c = cells[i];
-      if (c.__c === ch) continue;
-      const old = c.__c ?? "";
-      c.__c = ch;
-      c.lastElementChild.textContent = old;
-      c.firstElementChild.textContent = ch;
-      if (seed || reduce || !old || !ch) continue;
-      c.lastElementChild.animate(TO_ABOVE_CELL, RISE);
-      c.firstElementChild.animate(FROM_BELOW, RISE);
-    }
-  }
   var THEMES = {
     noir: {
       env: "noir",
@@ -33916,6 +33879,7 @@ void main() {
       hal: 0.072,
       ao: 1,
       grade: { bloom: 0.32, ca: 0.85, grain: 0.05, vig: 0.85, sat: 1, edge: 1, focus: 0.26 },
+      toon: { on: 0 },
       bg: {
         stops: [[0, "#12151a"], [0.44, "#1e232a"], [0.64, "#0d1014"], [1, "#040507"]],
         spot: { u: 0.849, v: 0.48, r: 0.4, color: "rgba(140,162,200,0.75)" }
@@ -33932,6 +33896,7 @@ void main() {
       hal: 0.02,
       ao: 0.92,
       grade: { bloom: 0.32, ca: 0.85, grain: 0.05, vig: 0.85, sat: 1, edge: 1, focus: 0.26 },
+      toon: { on: 0 },
       bg: {
         stops: [[0, "#9aa0a8"], [0.46, "#c2c7ce"], [0.78, "#d8dade"], [1, "#e9ebee"]],
         spot: { u: 0.849, v: 0.48, r: 0.44, color: "rgba(255,255,255,0.50)" }
@@ -33941,6 +33906,24 @@ void main() {
       shadowOp: 0.26,
       pool: 16777215,
       poolOp: 0.04
+    },
+    toon: {
+      // 三渲二: flat high-key light, posterised luminance, inked creases
+      env: "studio",
+      dust: 0.09,
+      hal: 0.012,
+      ao: 0.5,
+      grade: { bloom: 0.2, ca: 0.22, grain: 0.026, vig: 0.48, sat: 1.12, edge: 1, focus: 0.26 },
+      toon: { on: 1, levels: 4, flat: 0.88, ink: 0.6, width: 1.5 },
+      bg: {
+        stops: [[0, "#b4b9c1"], [0.46, "#d8dbdf"], [0.78, "#eef0f2"], [1, "#f8f9fa"]],
+        spot: { u: 0.849, v: 0.5, r: 0.52, color: "rgba(255,255,255,0.60)" }
+      },
+      floor2: 11975618,
+      floorMix: 0.26,
+      shadowOp: 0.22,
+      pool: 16777215,
+      poolOp: 0.03
     }
   };
   for (const T of Object.values(THEMES)) {
@@ -34000,15 +33983,15 @@ void main() {
     blending: AdditiveBlending,
     depthWrite: false
   });
-  var pool2 = new Mesh(new CircleGeometry(9, 48), poolMat);
-  pool2.rotation.x = -Math.PI / 2;
-  pool2.renderOrder = 3;
-  scene.add(pool2);
+  var pool = new Mesh(new CircleGeometry(9, 48), poolMat);
+  pool.rotation.x = -Math.PI / 2;
+  pool.renderOrder = 3;
+  scene.add(pool);
   var FLOOR_Y = -1.62;
   function setFloorDrop(d) {
     floorBase.mesh.position.y = FLOOR_Y - d;
     shadowCatcher.position.y = FLOOR_Y + 8e-3 - d;
-    pool2.position.y = FLOOR_Y + 0.02 - d;
+    pool.position.y = FLOOR_Y + 0.02 - d;
   }
   setFloorDrop(0);
   var dustLayers = [
@@ -34154,9 +34137,9 @@ void main() {
     cas.st.duration = d;
   }
   function setNowChip() {
-    swapText($("#now-title"), TRACK.title);
+    $("#now-title").textContent = TRACK.title;
     const credits = [TRACK.artist, TRACK.album].filter(Boolean).join(" \xB7 ");
-    swapText($("#now-sub"), audioFailed ? "\u97F3\u9891\u52A0\u8F7D\u5931\u8D25 \xB7 \u4EC5\u8D70\u5E26\u52A8\u753B" : credits || "\u672A\u77E5\u66F2\u76EE");
+    $("#now-sub").textContent = audioFailed ? "\u97F3\u9891\u52A0\u8F7D\u5931\u8D25 \xB7 \u4EC5\u8D70\u5E26\u52A8\u753B" : credits || "\u672A\u77E5\u66F2\u76EE";
   }
   function whenPlayable() {
     return new Promise((resolve) => {
@@ -34239,7 +34222,7 @@ void main() {
     swap.meta = null;
     if (swap.dur > 0) {
       cas.st.duration = swap.dur;
-      swapText(brandCode, "C\u2014" + tapeMinutes(swap.dur));
+      brandCode.textContent = "C\u2014" + tapeMinutes(swap.dur);
     }
     setNowChip();
     flashAdd(null);
@@ -34282,7 +34265,7 @@ void main() {
     cas.commitLabel();
     for (const t2 of staged.old) t2.dispose();
     cas.warmLabel(false);
-    swapText(brandCode, "C\u201405");
+    brandCode.textContent = "C\u201405";
     setNowChip();
     swap.dur = 0;
   }
@@ -34480,6 +34463,12 @@ void main() {
     grade.uniforms.uEdge.value = to(grade.uniforms.uEdge.value, G.edge ?? 1);
     grade.uniforms.uFocus.value = to(grade.uniforms.uFocus.value, G.focus ?? 0.26);
     if (bloom) bloom.strength = to(bloom.strength, G.bloom ?? 0.32);
+    const TO = T.toon ?? { on: 0 };
+    grade.uniforms.uToon.value = to(grade.uniforms.uToon.value, TO.on ?? 0);
+    grade.uniforms.uFlat.value = to(grade.uniforms.uFlat.value, TO.flat ?? 0);
+    grade.uniforms.uInk.value = to(grade.uniforms.uInk.value, TO.ink ?? 0);
+    if (TO.levels) grade.uniforms.uLevels.value = TO.levels;
+    if (TO.width) grade.uniforms.uInkWidth.value = TO.width;
     if (composer?.ao) composer.ao.strength = to(composer.ao.strength, T.ao ?? 1);
     poolMat.color.lerp(T.cPool, k);
     poolMat.opacity = to(poolMat.opacity, T.poolOp);
@@ -34576,17 +34565,17 @@ void main() {
   function showError(msg) {
     console.error(msg);
     if (loaderLbl.parentElement) {
-      setRoll(loaderPct, "ERR");
-      riseText(loaderLbl, String(msg).slice(0, 160));
+      loaderPct.textContent = "ERR";
+      loaderLbl.textContent = String(msg).slice(0, 160);
       loaderLbl.style.color = "#e0684a";
     }
   }
   addEventListener("error", (e) => showError(e.error?.stack || e.message));
   addEventListener("unhandledrejection", (e) => showError(e.reason?.stack || e.reason?.message || String(e.reason)));
   async function step(label, pct, fn) {
-    riseText(loaderLbl, label);
+    loaderLbl.textContent = label;
     loaderBar.style.width = pct + "%";
-    setRoll(loaderPct, pct + "%");
+    loaderPct.textContent = pct + "%";
     await nextFrame();
     await fn?.();
     await nextFrame();
@@ -34986,11 +34975,6 @@ void main() {
   var live = (r, i) => i === ri && (r.key ? focusKey === r.key : !exploded && focusKey === null);
   function swapIn(h0) {
     const el = D2.doc;
-    clearTimeout(reprintT);
-    D2.dossier.classList.remove("reprint");
-    void D2.dossier.offsetWidth;
-    D2.dossier.classList.add("reprint");
-    reprintT = setTimeout(() => D2.dossier.classList.remove("reprint"), 900);
     clearTimeout(docT);
     el.classList.remove("grow");
     el.style.height = "";
@@ -35010,7 +34994,6 @@ void main() {
     }, 460);
   }
   var docT = 0;
-  var reprintT = 0;
   function pinPanel() {
     const h = D2.dossier.getBoundingClientRect().height;
     if (h > 0) D2.dossier.style.setProperty("--panel-half", (h / 2).toFixed(1) + "px");
@@ -35153,28 +35136,27 @@ void main() {
   function render(bump = false) {
     const R = cur();
     const docH = D2.doc.getBoundingClientRect().height;
-    swapText(D2.colCn, R.cn);
+    D2.colCn.textContent = R.cn;
     setFileNo(R.no);
     D2.fileCn.textContent = R.cn;
     D2.fileEn.textContent = R.en;
     D2.fileNote.textContent = R.note;
-    setRoll(D2.selI, R.no);
-    swapText(D2.accessLabel, R.act);
+    D2.selI.textContent = R.no;
+    D2.accessLabel.textContent = R.act;
     D2.access.classList.toggle("done", live(R, ri));
     if (D2.fileSpec.dataset.no !== R.no) {
       D2.fileSpec.dataset.no = R.no;
-      D2.fileSpec.replaceChildren(...R.spec.map(([k, v], i) => {
+      D2.fileSpec.replaceChildren(...R.spec.map(([k, v]) => {
         const li = document.createElement("li");
-        li.style.setProperty("--i", i);
         li.innerHTML = `<span>${k}</span><b>${v}</b>`;
         return li;
       }));
     }
     D2.dossier.classList.toggle("tight", vi === MACRO);
     const V = vi >= 0 ? VANTAGES[vi] : null;
-    setRoll(D2.colI, V ? String(vi + 1).padStart(2, "0") : "--");
-    swapText(D2.colCn2, V ? V.cn : R.viewName);
-    swapText(D2.colEn, V ? V.en : R.viewEn);
+    D2.colI.textContent = V ? String(vi + 1).padStart(2, "0") : "--";
+    D2.colCn2.textContent = V ? V.cn : R.viewName;
+    D2.colEn.textContent = V ? V.en : R.viewEn;
     for (let i = 0; i < RECORDS.length; i++) {
       const l = live(RECORDS[i], i);
       refRows[i].className = "row" + (i === ri ? " sel" : "") + (l ? " done" : "");
@@ -35236,7 +35218,7 @@ void main() {
   var muteBtn = $("#btn-mute");
   var volFlash = 0;
   function showVolume() {
-    swapText(volRead, muted ? "\u9759\u97F3" : `${Math.round(volume * 100)}%`);
+    volRead.textContent = muted ? "\u9759\u97F3" : `${Math.round(volume * 100)}%`;
     muteBtn.classList.add("show-vol");
     clearTimeout(volFlash);
     volFlash = setTimeout(() => muteBtn.classList.remove("show-vol"), 1100);
@@ -35257,7 +35239,6 @@ void main() {
     indexCols.replaceChildren(...RECORDS.map((R, x) => {
       const d = document.createElement("div");
       d.className = "icol" + (x === ri ? " on" : "");
-      d.style.setProperty("--i", x);
       const h = document.createElement("button");
       h.className = "icol-h";
       h.innerHTML = `<span>${R.no} ${R.cn}</span><em>${R.en}</em>`;
@@ -35342,10 +35323,9 @@ void main() {
   function paintDial(s) {
     const v = prefs[s.k];
     s.dialEl.value = String(v);
-    s.dialEl.parentElement.style.setProperty("--p", v.toFixed(3));
-    const label = v > 0 ? Math.round(v * 100) + "%" : "\u5173";
-    setRoll(s.valEl, label);
-    s.dialEl.setAttribute("aria-valuetext", label);
+    s.dialEl.style.setProperty("--fill", (v * 100).toFixed(1) + "%");
+    s.valEl.textContent = v > 0 ? Math.round(v * 100) + "%" : "\u5173";
+    s.dialEl.setAttribute("aria-valuetext", s.valEl.textContent);
   }
   function syncSettings() {
     for (const s of SETTINGS) {
@@ -35370,21 +35350,15 @@ void main() {
     document.body.classList.add("moved");
   }
   function buildSettings() {
-    setList.replaceChildren(...SETTINGS.map((s, i) => {
+    setList.replaceChildren(...SETTINGS.map((s) => {
       const li = document.createElement("li");
       li.className = "set-row";
-      li.style.setProperty("--i", i);
       const t2 = document.createElement("div");
       t2.className = "set-t";
       t2.innerHTML = `<b>${s.cn}</b><i>${s.en}</i><em>${s.note}</em>`;
       if (s.dial) {
         const box2 = document.createElement("div");
         box2.className = "set-dial";
-        const track = document.createElement("div");
-        track.className = "dial-track";
-        const fill = document.createElement("i");
-        fill.className = "rail-fill";
-        fill.setAttribute("aria-hidden", "true");
         const r = document.createElement("input");
         r.type = "range";
         r.min = "0";
@@ -35392,7 +35366,6 @@ void main() {
         r.step = String(1 / DIAL_STEPS);
         r.className = "ui-hit";
         r.setAttribute("aria-label", `${s.cn}\u5F3A\u5EA6`);
-        track.append(fill, r);
         const out = document.createElement("b");
         out.className = "set-val";
         let detent = Math.round(prefs.vig * DIAL_STEPS);
@@ -35405,7 +35378,7 @@ void main() {
           }
           setPref(s, v);
         });
-        box2.append(track, out);
+        box2.append(r, out);
         s.dialEl = r;
         s.valEl = out;
         li.append(t2, box2);
@@ -35538,68 +35511,6 @@ void main() {
   $("#btn-index").addEventListener("click", toggleIndex);
   $("#index-close").addEventListener("click", closeIndex);
   $("#btn-reinit").addEventListener("click", reinit);
-  var seekEl = $("#seek");
-  var railEl = seekEl.parentElement;
-  var scrubbing = false;
-  var railShown = -1;
-  function seekTo(frac) {
-    if (!cas) return;
-    const dur = audioOk() ? audioEl.duration : cas.st.duration;
-    if (!(dur > 0)) return;
-    const f = clamp2(frac, 0, 1);
-    if (mode === "rew") togglePlay(false);
-    cas.st.dir = -1;
-    if (audioOk()) audioEl.currentTime = f * dur;
-    cas.setProgress(f);
-    const tc = $("#tc");
-    const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-    setRoll(tc, fmt(f * dur));
-    seekEl.value = String(f);
-    railShown = f;
-    railEl.style.setProperty("--p", f.toFixed(4));
-    document.body.classList.add("moved");
-  }
-  seekEl.addEventListener("pointerdown", () => {
-    scrubbing = true;
-  });
-  seekEl.addEventListener("input", () => {
-    scrubbing = true;
-    seekTo(+seekEl.value);
-  });
-  seekEl.addEventListener("change", () => {
-    scrubbing = false;
-    seekTo(+seekEl.value);
-  });
-  seekEl.addEventListener("pointerup", () => {
-    scrubbing = false;
-  });
-  seekEl.addEventListener("keyup", () => {
-    scrubbing = false;
-  });
-  seekEl.addEventListener("keydown", (e) => {
-    if (e.key === "Home") {
-      e.preventDefault();
-      seekTo(0);
-    } else if (e.key === "End") {
-      e.preventDefault();
-      seekTo(1);
-    }
-  });
-  var keyChips = [...document.querySelectorAll("#keys .kg")];
-  var chipFor = (k) => keyChips.find((c) => (c.dataset.k || "").split(" ").includes(k));
-  var chipKey = (e) => e.key === " " ? "space" : String(e.key || "").toLowerCase();
-  addEventListener("keydown", (e) => {
-    if (e.repeat) return;
-    const c = chipFor(chipKey(e));
-    if (c) c.classList.add("hit");
-  });
-  addEventListener("keyup", (e) => {
-    const c = chipFor(chipKey(e));
-    if (c) c.classList.remove("hit");
-  });
-  addEventListener("blur", () => {
-    for (const c of keyChips) c.classList.remove("hit");
-  });
   var addBtn = $("#btn-add");
   var addRead = $("#add-read");
   var fileInput = $("#tape-file");
@@ -35737,7 +35648,7 @@ void main() {
     }
     st.playing = on;
     document.body.classList.toggle("playing", on);
-    swapText($("#play-label"), on ? "\u6682\u505C" : "\u8D70\u5E26");
+    $("#play-label").textContent = on ? "\u6682\u505C" : "\u8D70\u5E26";
     if (on) {
       mode = "play";
       if (audioOk()) {
@@ -35946,6 +35857,7 @@ void main() {
     syncPanelFold();
     cas.root.getWorldPosition(subjectPos).project(camera);
     grade.uniforms.uCenter.value.set(subjectPos.x * 0.5 + 0.5, subjectPos.y * 0.5 + 0.5);
+    grade.uniforms.uProjInv.value.copy(camera.projectionMatrixInverse);
     watchPerf(dt);
     applyTheme(dt, reduce);
     updateAnnotations();
@@ -35955,19 +35867,11 @@ void main() {
       counterAcc = 0;
       const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
       const t1 = fmt(st.time), t2 = fmt(st.duration);
-      setRoll(tcEl, t1);
-      setRoll(tdEl, t2);
-      if (!scrubbing && st.duration > 0) {
-        const frac = clamp2(st.time / st.duration, 0, 1);
-        if (Math.abs(frac - railShown) > 2e-4) {
-          railShown = frac;
-          seekEl.value = String(frac);
-          railEl.style.setProperty("--p", frac.toFixed(4));
-        }
-      }
+      if (tcEl.textContent !== t1) tcEl.textContent = t1;
+      if (tdEl.textContent !== t2) tdEl.textContent = t2;
       const d = /* @__PURE__ */ new Date();
       const cs = `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
-      setRoll(clockEl, cs);
+      if (clockEl.textContent !== cs) clockEl.textContent = cs;
       const audioLive = audioOk() && !audioEl.paused && !audioEl.ended;
       const title = audioLive ? `\u266A ${fmt(audioEl.currentTime)} \xB7 ${TRACK.title}` : `${TRACK.title} \u2014 OHM TAPE`;
       if (title !== lastTitle) {

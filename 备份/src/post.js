@@ -9,6 +9,8 @@ import { AOPass } from './ao.js';
 const Grade = {
   uniforms: {
     tDiffuse: { value: null },
+    tDepth: { value: null },
+    uProjInv: { value: new THREE.Matrix4() },
     uTime: { value: 0 },
     uGrain: { value: 0.05 },
     uVig: { value: 0.85 },
@@ -20,14 +22,24 @@ const Grade = {
     uFocus: { value: 0.26 },   // uv radius that stays sharp
     uCenter: { value: new THREE.Vector2(0.5, 0.5) },
     uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
+    // stylised (三渲二) stage
+    uToon: { value: 0 },
+    uLevels: { value: 4.0 },
+    uFlat: { value: 0.85 },
+    uInk: { value: 0.62 },
+    uInkWidth: { value: 1.5 },
+    uInkColor: { value: new THREE.Color(0x0b0a10) },
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
     void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
   `,
   fragmentShader: /* glsl */`
-    uniform sampler2D tDiffuse;
+    uniform sampler2D tDiffuse, tDepth;
+    uniform mat4 uProjInv;
     uniform float uTime, uGrain, uVig, uCA, uFade, uSat, uHal, uEdge, uFocus;
+    uniform float uToon, uLevels, uFlat, uInk, uInkWidth;
+    uniform vec3 uInkColor;
     uniform vec2 uCenter, uTexel;
     varying vec2 vUv;
 
@@ -45,6 +57,15 @@ const Grade = {
       s += texture2D(tDiffuse, uv + vec2(r.x, -r.y) * 0.70).rgb * 0.095;
       s += texture2D(tDiffuse, uv + vec2(-r.x, r.y) * 0.70).rgb * 0.095;
       return s;
+    }
+
+    vec3 viewPos(vec2 uv, float d) {
+      vec4 p = uProjInv * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+      return p.xyz / p.w;
+    }
+    vec3 normalAt(vec2 uv, float d) {
+      vec3 p = viewPos(uv, d);
+      return normalize(cross(dFdx(p), dFdy(p)));
     }
 
     void main() {
@@ -69,6 +90,48 @@ const Grade = {
       // halation: warm bleed off the brightest speculars
       c += vec3(1.0, 0.60, 0.32) * smoothstep(0.78, 1.0, l) * uHal;
       c = mix(vec3(l), c, uSat);
+
+      /* ---- stylised stage: posterised luminance + inked creases ----------
+         Edges come from two independent signals, because neither alone is
+         reliable: the normal break (from depth derivatives) catches creases
+         between touching parts, and the view-space depth step catches the
+         silhouette against the floor and the void. The depth threshold scales
+         with distance so a sloped surface never inks itself at grazing angles. */
+      if (uToon > 0.001) {
+        float d0 = texture2D(tDepth, uv).x;
+        // the floor, glass and dust do not write depth, so large parts of the
+        // frame have no depth at all. Reconstructing a normal from d = 1 gives
+        // NaN, and NaN survives clamp()/mix() as garbage pixels — so skip
+        // everything that is not solid geometry up front.
+        if (d0 < 0.99999) {
+        vec2 tx = uTexel * uInkWidth;
+        float dR = texture2D(tDepth, uv + vec2(tx.x, 0.0)).x;
+        float dL = texture2D(tDepth, uv - vec2(tx.x, 0.0)).x;
+        float dU = texture2D(tDepth, uv + vec2(0.0, tx.y)).x;
+        float dD = texture2D(tDepth, uv - vec2(0.0, tx.y)).x;
+
+        float z0 = -viewPos(uv, d0).z;
+        float thr = 0.013 * z0;
+        float step0 = abs(-viewPos(uv + vec2(tx.x, 0.0), dR).z - z0);
+        step0 = max(step0, abs(-viewPos(uv - vec2(tx.x, 0.0), dL).z - z0));
+        step0 = max(step0, abs(-viewPos(uv + vec2(0.0, tx.y), dU).z - z0));
+        step0 = max(step0, abs(-viewPos(uv - vec2(0.0, tx.y), dD).z - z0));
+        float depthEdge = smoothstep(thr, thr * 2.2, step0);
+
+        vec3 N = normalAt(uv, d0);
+        float nd = 0.0;
+        if (dR < 0.99999) nd += 1.0 - dot(N, normalAt(uv + vec2(tx.x, 0.0), dR));
+        if (dU < 0.99999) nd += 1.0 - dot(N, normalAt(uv + vec2(0.0, tx.y), dU));
+        float normalEdge = smoothstep(0.10, 0.55, nd);
+
+        float edge = clamp(max(depthEdge, normalEdge) * uInk, 0.0, 1.0);
+
+        float dith = (hash(uv * 977.0) - 0.5) * (0.85 / uLevels);
+        float lq = clamp(floor(l * uLevels + 0.5 + dith) / uLevels, 0.0, 1.0);
+        c *= mix(1.0, lq / max(l, 0.0015), uFlat * uToon);
+        c = mix(c, uInkColor, edge * uToon);
+        }
+      }
 
       float vig = smoothstep(1.18, 0.28, length(d) * 1.42);
       c *= mix(1.0, vig, uVig);
@@ -100,8 +163,8 @@ export function createComposer(renderer, scene, camera) {
   /* RenderPass always draws into readBuffer, and readBuffer alternates between
      the composer's two targets: the chain swaps an odd number of times per
      frame (AO, Output, Grade). rt's clone carries a *cloned* depth texture —
-     three clones the depth attachment along with the target — so the AO would be
-     handed the previous frame's depth on every other frame.
+     three clones the depth attachment along with the target — so the AO and the
+     ink edges would be handed the previous frame's depth on every other frame.
      The subject drifts ~0.08 px per frame, so that shows up as an occlusion
      pattern that flips between two slightly different images at half the frame
      rate: a shimmer on every edge, which no amount of sampling tweaking fixes.
@@ -115,6 +178,7 @@ export function createComposer(renderer, scene, camera) {
   const output = new OutputPass();
   const grade = new ShaderPass(Grade);
   grade.uniforms.uFade.value = 0;
+  grade.uniforms.tDepth.value = depthTexture;
   composer.addPass(render);
   composer.addPass(ao);
   composer.addPass(bloom);
